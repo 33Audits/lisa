@@ -1,18 +1,17 @@
 /**
  * Codex CLI adapter.
  *
- *   ~/.codex/config.toml   — `[mcp_servers.lisa]`, merged (see toml.ts)
- *   <repo>/AGENTS.md       — the workflow, in a marker block
- *
- * Split scope, unlike Claude Code: Codex keeps MCP servers in one user-global TOML file,
- * so the registration can't travel through the repo. `AGENTS.md` can and does — which is
- * why the brief is project-scoped even though the wiring isn't. A teammate who clones the
- * repo gets the instructions and has to run `lisa install codex` once for the server.
+ *   ~/.codex/config.toml   — `[mcp_servers.lisa]`, merged (see toml.ts). Always here:
+ *                            Codex keeps MCP servers in one user-global TOML file, so this
+ *                            half was never able to travel through a repo.
+ *   ~/.codex/AGENTS.md     — the workflow under user scope, in a marker block
+ *   <repo>/AGENTS.md       — the same block under project scope, committed so a teammate
+ *                            who clones the repo gets the instructions without installing
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { agentsChange } from "./agents-md.js";
+import { AGENTS_FILE, agentsChange, markerBlockChange } from "./agents-md.js";
 import { briefFor } from "./instructions.js";
 import { setTomlTable } from "./toml.js";
 import { whichSync } from "./command.js";
@@ -28,7 +27,7 @@ function configPath(home: string): string {
 export const codex: Harness = {
   id: "codex",
   displayName: "Codex CLI",
-  summary: "MCP server in ~/.codex/config.toml + a lisa section in AGENTS.md",
+  summary: "MCP server in ~/.codex/config.toml + a lisa section in ~/.codex/AGENTS.md",
 
   detect(target: DetectTarget): DetectResult {
     if (fs.existsSync(configPath(target.home))) return { installed: true, evidence: `found ~/${CODEX_DIR}/${CODEX_CONFIG}` };
@@ -46,14 +45,21 @@ export const codex: Harness = {
       { command: target.server.command, args: target.server.args },
       file,
     );
-    return [{ path: file, contents, before, label: "MCP server registration" }, agentsChange(target, briefFor(target))];
+    const brief =
+      target.scope === "user"
+        ? markerBlockChange(target, briefFor(target), path.join(target.home, CODEX_DIR, AGENTS_FILE), "agent workflow (global AGENTS.md section)")
+        : agentsChange(target, briefFor(target));
+    return [{ path: file, contents, before, label: "MCP server registration" }, brief];
   },
 
-  nextSteps(): string[] {
+  nextSteps(target: InstallTarget): string[] {
     return [
       "Start a new `codex` session — it reads ~/.codex/config.toml at launch.",
       "Codex will ask to approve the `lisa` server's tools the first time — say yes.",
       "Then try: “run QA on staging”.",
+      ...(target.scope === "user"
+        ? ["That's the machine done. In any other repo, `lisa init` is all that's left — the wiring is already there."]
+        : []),
     ];
   },
 };

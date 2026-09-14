@@ -30,6 +30,7 @@ src/templates.ts     template lookup + rendering
 src/commands/init.ts `lisa init`
 src/commands/install.ts `lisa install`
 src/commands/doctor.ts `lisa doctor`
+src/commands/update.ts `lisa update`
 src/harness/         harness adapters: plan() what would change, then apply it
 src/browser.ts        lazy Chromium install (on first `lisa run`, not on `npm install`)
 src/banner.ts        wordmark
@@ -58,17 +59,51 @@ entirely (e.g. a machine with its own Chromium already on the expected path); `l
 fails with instructions instead of downloading. Run `lisa doctor` any time to check whether
 it's installed without triggering a download.
 
-Then, from your app's repo:
+`npm run setup` finishes by printing the one command left to run.
+
+### Wire your agent — once per machine
+
+```bash
+lisa install claude-code      # or codex | cursor | windsurf
+```
+
+This is **not** per project. It registers lisa's MCP server in your harness's own
+home-directory config (`~/.claude.json`, `~/.codex/config.toml`, …) and installs the
+workflow brief as a personal skill, so every repo on the machine is wired from here on.
+That works because a user-scope registration carries no `--config`: the harness launches
+the server with your repo as its working directory, and lisa resolves whichever
+`lisa.config.yaml` belongs to it.
+
+Run it again any time to change [native or oneshot](#native-vs-oneshot) mode; re-running
+with nothing to change is a no-op that says so.
+
+<details>
+<summary>Committing the wiring instead (<code>--project</code>)</summary>
+
+```bash
+lisa install claude-code --project
+```
+
+Writes `.mcp.json` and `.claude/skills/lisa/SKILL.md` into the repo so they can be
+committed and a teammate gets them on clone. They still need `lisa` on their PATH, and
+they get a per-repo approval prompt in the harness — which is the tradeoff you're making.
+Cursor is a partial case in the other direction: its MCP config has a home-directory form
+but its rules don't, so even a user-scope install leaves `.cursor/rules/lisa.mdc` in the
+repo. `lisa install cursor` tells you so rather than reporting a clean "wired".
+
+</details>
+
+### Then, in each app repo
 
 ```bash
 lisa init
 ```
 
-The first thing it asks — before anything about the app itself — is **how you're going
-to run lisa**: inside an agent harness (Claude Code, Codex, Cursor, Windsurf), or
-standalone (terminal, CI, a server). Pick a harness and it asks one follow-up — [native or
-oneshot](#native-vs-oneshot) — then, once the config is written, chains straight into
-`lisa install <harness>` for you: one command instead of two. Pick standalone and nothing
+On a machine that's already wired this is the *only* per-repo step — `init` detects the
+existing install and skips the harness question entirely. On a fresh machine it asks
+first **how you're going to run lisa**: inside an agent harness, or standalone (terminal,
+CI, a server). Pick a harness and it asks one follow-up — native or oneshot — then chains
+straight into `lisa install` once the config is written. Pick standalone and nothing
 changes from here: same prompts, same `.env` / `ANTHROPIC_API_KEY` instructions as always.
 
 Then it asks for a project name, a staging URL, whether the app needs a login, and
@@ -96,6 +131,20 @@ existing config instead of adding to it), `--name`, `--url`, `--no-login`,
 `--username-env`, `--password-env`, `--mission smoke|auth|minimal`,
 `--harness claude-code|codex|cursor|windsurf|none`, `--mode native|oneshot`.
 
+### Keeping it up to date
+
+```bash
+lisa update            # pull + rebuild lisa, then refresh the wiring it already installed
+lisa update --check    # report drift, change nothing (exits 1 when anything is stale)
+lisa update --no-build # only refresh the wiring
+```
+
+A new lisa version usually ships a new brief, and a brief describing tools that have moved
+on is worse than no brief. `update` re-applies each harness's files **at the scope and mode
+it's actually wired in** — it never wires up a harness you didn't choose, and it names the
+ones it skipped. The rebuild half is for a git checkout; installed from npm, upgrade with
+`npm i -g lisa-cli@latest` and `lisa update --no-build`.
+
 Finally fill in `.env`:
 
 ```bash
@@ -108,8 +157,9 @@ environment wins, so CI secrets are never overwritten by a checked-out file.
 ## 1. Terminal
 
 ```bash
-lisa init                              # scaffold a config (see above)
-lisa install claude-code               # wire it into your agent harness
+lisa install claude-code               # wire your agent — once per machine
+lisa init                              # scaffold a config (see above) — once per repo
+lisa update                            # rebuild lisa + refresh that wiring
 lisa list                              # configured projects (flags unset credentials)
 lisa run acme-dashboard                # headless run, streams every action live
 lisa run acme-dashboard --headed       # opens a Chromium window so you can watch

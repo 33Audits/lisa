@@ -17,7 +17,16 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { contextFor, findProjectConfig, globalConfigPath, initTargetPath, UserError } from "../paths.js";
 import { readTemplate, render } from "../templates.js";
-import { DEFAULT_TOOLS_MODE, HARNESSES, detectAll, detectTarget, findHarness, type ToolsMode } from "../harness/index.js";
+import {
+  DEFAULT_TOOLS_MODE,
+  HARNESSES,
+  detectAll,
+  detectTarget,
+  findHarness,
+  installTarget,
+  statusOf,
+  type ToolsMode,
+} from "../harness/index.js";
 import { installCommand, pickToolsMode } from "./install.js";
 
 export interface InitOptions {
@@ -61,6 +70,27 @@ function resolveHarnessFlag(raw: string | undefined): string | null | undefined 
  * Skipped entirely off a TTY: a non-interactive `--yes` run is already the "hosting on a
  * server / CI" case, so it defaults to standalone unless `--harness` says otherwise.
  */
+/**
+ * Harnesses this machine already has wired at user scope.
+ *
+ * The whole point of a user-scope install is that the second repo needs no install at
+ * all, so asking "how will you run lisa?" again — and then rewriting `~/.claude.json`
+ * with identical content — would be theatre. Computed against the config path `init` is
+ * about to write, which `contextFor` is happy to do before the file exists: a user-scope
+ * plan's contents don't depend on the project anyway, which is precisely why one
+ * registration can serve every repo.
+ */
+function preWiredHarnesses(configPath: string, global: boolean): string[] {
+  const ctx = contextFor(configPath, global ? "global" : "project");
+  return HARNESSES.filter((h) => {
+    try {
+      return statusOf(h.plan(installTarget(ctx, { scope: "user" }))) === "wired";
+    } catch {
+      return false;
+    }
+  }).map((h) => h.id);
+}
+
 async function pickInitHarness(dir: string): Promise<string | null> {
   const detected = detectAll(detectTarget(dir));
   const value = await ask(
@@ -236,7 +266,17 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
 
   // ---- how will you run lisa? (asked first — it decides what happens after the write) ----
   const harnessFlag = resolveHarnessFlag(opts.harness);
-  const harnessChoice = harnessFlag !== undefined ? harnessFlag : interactive ? await pickInitHarness(root) : null;
+  // An explicit --harness still wins: re-installing is a legitimate thing to ask for, and
+  // this only skips a question nobody needs to answer twice.
+  const preWired = harnessFlag === undefined ? preWiredHarnesses(target, Boolean(opts.global)) : [];
+  if (preWired.length && interactive) {
+    p.log.success(
+      `${preWired.map((id) => findHarness(id).displayName).join(", ")} ${preWired.length > 1 ? "are" : "is"} already wired on this machine — ` +
+        `nothing to install for this repo.`,
+    );
+  }
+  const harnessChoice =
+    harnessFlag !== undefined ? harnessFlag : preWired.length ? null : interactive ? await pickInitHarness(root) : null;
   // Resolved here rather than inside the chained install, because the "next steps" printed
   // below differ by mode — a native user must not be told to go and get an API key.
   const toolsMode: ToolsMode = harnessChoice
@@ -415,7 +455,15 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
   if (Object.values(credentials).length) {
     steps.push(`Put the test credentials in ${pc.bold(rel(path.join(root, ".env")))}: ${Object.values(credentials).join(", ")}`);
   }
-  if (harnessChoice && toolsMode === "native") {
+  // `preWired` is the third case, and it is not "standalone": the machine is already
+  // wired, so there is nothing to install and no key to fetch — the agent in this repo
+  // can drive the browser as soon as the config exists.
+  if (preWired.length) {
+    steps.push(
+      `Nothing to install — ${preWired.map((id) => findHarness(id).displayName).join(" / ")} already ${preWired.length > 1 ? "have" : "has"} lisa. ` +
+        `(Set ${pc.bold("ANTHROPIC_API_KEY")} only if you also want ${pc.bold("lisa run")} or CI.)`,
+    );
+  } else if (harnessChoice && toolsMode === "native") {
     steps.push(
       `No ${pc.bold("ANTHROPIC_API_KEY")} needed — ${findHarness(harnessChoice).displayName} drives the browser itself. ` +
         `(Set one only if you also want to run ${pc.bold("lisa run")} or CI.)`,
@@ -426,7 +474,8 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
     steps.push(`Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell).`);
   }
   steps.push(`Sharpen the mission in ${pc.bold(rel(target))} — the more specific it is, the better the report.`);
-  if (!harnessChoice) steps.push(`Run ${pc.bold(`lisa run ${name}`)}${interactive ? pc.dim("  (add --headed to watch)") : ""}`);
+  if (preWired.length) steps.push(`Then just ask your agent: ${pc.bold("“run QA on staging”")}.`);
+  else if (!harnessChoice) steps.push(`Run ${pc.bold(`lisa run ${name}`)}${interactive ? pc.dim("  (add --headed to watch)") : ""}`);
   const next = steps.map((s, i) => `${i + 1}. ${s}`);
 
   if (interactive) {

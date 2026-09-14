@@ -20,13 +20,16 @@ import { codex } from "./codex.js";
 import { cursor } from "./cursor.js";
 import { windsurf } from "./windsurf.js";
 import {
+  DEFAULT_INSTALL_SCOPE,
   DEFAULT_TOOLS_MODE,
+  INSTALL_SCOPES,
   TOOLS_MODES,
   statusOf,
   type DetectResult,
   type DetectTarget,
   type Harness,
   type HarnessStatus,
+  type InstallScope,
   type InstallTarget,
   type ToolsMode,
 } from "./types.js";
@@ -65,9 +68,15 @@ export interface TargetOptions {
   command?: string;
   /** Which tool surface to register and brief for. Defaults to native. */
   mode?: ToolsMode;
+  /** Once per machine, or committed to this repo. Defaults to user. */
+  scope?: InstallScope;
 }
 
 /**
+ * `dir` is still resolved under user scope, and still matters: adapters that have no
+ * home-directory home for their brief fall back to the repo (see `Harness.scopeNote`),
+ * and `detect()` looks there either way.
+ *
  * Project-scoped harness files default to the config's own directory — that is the app
  * repo for a project config. Under a global config there is no repo to speak of, so the
  * cwd is the only sensible answer.
@@ -75,35 +84,52 @@ export interface TargetOptions {
 export function installTarget(ctx: RuntimeContext, opts: TargetOptions = {}, cwd: string = process.cwd()): InstallTarget {
   const dir = opts.dir ? path.resolve(cwd, opts.dir) : ctx.scope === "project" ? ctx.root : path.resolve(cwd);
   const mode = opts.mode ?? DEFAULT_TOOLS_MODE;
-  return { ctx, dir, home: os.homedir(), mode, server: resolveServerCommand(ctx, opts.command, mode) };
+  const scope = opts.scope ?? DEFAULT_INSTALL_SCOPE;
+  return { ctx, dir, home: os.homedir(), mode, scope, server: resolveServerCommand(ctx, opts.command, mode, scope, dir) };
+}
+
+export interface WiredState {
+  status: HarnessStatus;
+  mode: ToolsMode | null;
+  scope: InstallScope | null;
 }
 
 /**
- * Wiring state without assuming a mode.
+ * Wiring state without assuming a mode *or* a scope.
  *
  * A harness installed in oneshot mode is *wired*, not *out of date* — it is just wired to
- * the other surface. `lisa doctor` has to say so, because telling someone their working
- * install is broken is worse than saying nothing. `lisa install --status` uses this to
- * explain a "stale" it would otherwise report without a reason.
+ * the other surface. The same now goes for scope: someone whose wiring lives in the repo
+ * has a working install, and reporting it as broken because the default moved to user
+ * scope would be a lie. `lisa doctor`, `lisa install --status`, and `lisa update` all
+ * need the real answer, so the search covers every scope × mode combination and reports
+ * which one actually matched.
  *
- * Errors are swallowed to `null` deliberately: one harness with an unparseable config file
- * must not take down a report that covers four of them.
+ * Errors are swallowed deliberately: one harness with an unparseable config file must not
+ * take down a report that covers four of them.
  */
-export function wiredMode(harness: Harness, ctx: RuntimeContext, opts: TargetOptions = {}): { status: HarnessStatus; mode: ToolsMode | null } {
-  const results: { mode: ToolsMode; status: HarnessStatus }[] = [];
-  for (const mode of TOOLS_MODES) {
-    try {
-      results.push({ mode, status: statusOf(harness.plan(installTarget(ctx, { ...opts, mode }))) });
-    } catch {
-      // This mode can't even be planned; another might still be informative.
+export function wiredMode(harness: Harness, ctx: RuntimeContext, opts: TargetOptions = {}): WiredState {
+  const results: { mode: ToolsMode; scope: InstallScope; status: HarnessStatus }[] = [];
+  // Scope outer, mode inner, and DEFAULT_INSTALL_SCOPE first in INSTALL_SCOPES: when a
+  // machine somehow carries both, the default is the one reported.
+  for (const scope of INSTALL_SCOPES) {
+    for (const mode of TOOLS_MODES) {
+      try {
+        results.push({ mode, scope, status: statusOf(harness.plan(installTarget(ctx, { ...opts, mode, scope }))) });
+      } catch {
+        // This combination can't even be planned; another might still be informative.
+      }
     }
   }
   const wired = results.find((r) => r.status === "wired");
-  if (wired) return { status: "wired", mode: wired.mode };
-  // No mode could even be planned: re-run once outside the try so the real error surfaces
+  if (wired) return { status: "wired", mode: wired.mode, scope: wired.scope };
+  // Nothing could even be planned: re-run once outside the try so the real error surfaces
   // instead of a status we'd be inventing.
   if (!results.length) harness.plan(installTarget(ctx, opts));
-  return { status: results.every((r) => r.status === "not-wired") ? "not-wired" : "stale", mode: null };
+  const status = results.every((r) => r.status === "not-wired") ? "not-wired" : "stale";
+  // A partial install is worth locating: name the scope holding the drifted files so
+  // `lisa update` re-applies where the user actually installed, not where the default is.
+  const stale = status === "stale" ? results.find((r) => r.status === "stale") : undefined;
+  return { status, mode: null, scope: stale?.scope ?? null };
 }
 
 export * from "./types.js";

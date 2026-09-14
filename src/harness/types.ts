@@ -50,6 +50,30 @@ export function parseToolsMode(raw: string): ToolsMode {
 }
 
 /**
+ * Where the wiring lives: once per machine, or once per repo.
+ *
+ * `user` writes into the harness's own home-directory config — one registration that
+ * serves every repo, because the server is launched without `--config` and discovers
+ * whichever `lisa.config.yaml` sits in the directory the harness spawned it from.
+ *
+ * `project` writes into the repo, so the wiring can be committed. It is no longer the
+ * default: a per-repo registration means a per-repo approval prompt, N copies of the
+ * brief to keep in sync, and — before this change — a registration carrying an absolute
+ * config path that was correct on exactly one machine.
+ */
+export type InstallScope = "user" | "project";
+export const INSTALL_SCOPES: InstallScope[] = ["user", "project"];
+
+/** Install once per machine unless asked otherwise. See `InstallScope`. */
+export const DEFAULT_INSTALL_SCOPE: InstallScope = "user";
+
+export function parseInstallScope(raw: string): InstallScope {
+  const value = raw.trim().toLowerCase();
+  if ((INSTALL_SCOPES as string[]).includes(value)) return value as InstallScope;
+  throw new UserError(`Unknown --scope "${raw}". Expected ${INSTALL_SCOPES.join(" or ")}.`);
+}
+
+/**
  * What `detect()` needs: a directory to look in and a home directory for harnesses
  * whose config is user-global. Deliberately lighter than `InstallTarget` — detecting
  * whether Claude Code is installed has nothing to do with resolving lisa's own config
@@ -67,6 +91,8 @@ export interface InstallTarget extends DetectTarget {
   server: ServerCommand;
   /** Drives both the server's `--tools` argument and which brief the adapter renders. */
   mode: ToolsMode;
+  /** Whether this install is once-per-machine (`user`) or committed to the repo (`project`). */
+  scope: InstallScope;
 }
 
 export interface DetectResult {
@@ -96,6 +122,15 @@ export interface Harness {
   plan(target: InstallTarget): FileChange[];
   /** Printed after a successful install — how to make the harness pick the change up. */
   nextSteps(target: InstallTarget): string[];
+  /**
+   * One line when this harness can't honour `scope` completely, or null when it can.
+   *
+   * Cursor is the case that needs it: its MCP config has a home-directory form, but its
+   * rules are a per-repo directory with no user-global file equivalent, so a `user`
+   * install still leaves the brief in the repo. Saying so is better than a "wired"
+   * report that quietly means something different here than everywhere else.
+   */
+  scopeNote?(scope: InstallScope): string | null;
 }
 
 export type ChangeKind = "create" | "update" | "unchanged";

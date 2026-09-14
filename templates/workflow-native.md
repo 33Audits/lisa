@@ -60,7 +60,7 @@ Then compare against the previous report.
 
 ## If a tool returns a config error
 
-lisa is wired to `{{config}}`. If a tool reports that no config was found, or that a
+{{wiring}} If a tool reports that no config was found, or that a
 project is unknown, tell the user to run `lisa init` — don't hand-write the config
 file yourself.
 

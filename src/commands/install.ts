@@ -11,11 +11,13 @@
  * with its own working directory, so lisa's own config discovery can't be relied on.
  */
 
+import os from "node:os";
 import path from "node:path";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { UserError, type RuntimeContext } from "../paths.js";
 import {
+  DEFAULT_INSTALL_SCOPE,
   DEFAULT_TOOLS_MODE,
   HARNESSES,
   applyChanges,
@@ -30,6 +32,7 @@ import {
   type FileChange,
   type Harness,
   type HarnessStatus,
+  type InstallScope,
   type InstallTarget,
   type TargetOptions,
   type ToolsMode,
@@ -45,6 +48,8 @@ export interface InstallOptions {
   status?: boolean;
   /** Undefined means "ask on a TTY, otherwise take the default". */
   mode?: ToolsMode;
+  /** Once per machine (default) or committed to this repo. */
+  scope?: InstallScope;
 }
 
 const KIND_LABEL = { create: pc.green("create  "), update: pc.yellow("update  "), unchanged: pc.dim("ok      ") } as const;
@@ -55,10 +60,19 @@ const STATUS_LABEL: Record<HarnessStatus, string> = {
   "not-wired": pc.dim("not wired"),
 };
 
-/** Paths read better relative to the directory being wired, until they'd climb out of it. */
+/**
+ * Paths read better relative to the directory being wired, until they'd climb out of it.
+ *
+ * User-scope installs climb out by design, and an absolute `/Users/you/.claude.json` in
+ * the summary is noise — so anything under the home directory falls back to `~/…` rather
+ * than to the full path.
+ */
 function rel(file: string, dir: string): string {
   const r = path.relative(dir, file);
-  return !r ? path.basename(file) : r.startsWith("..") ? file : r;
+  if (!r) return path.basename(file);
+  if (!r.startsWith("..")) return r;
+  const fromHome = path.relative(os.homedir(), file);
+  return fromHome && !fromHome.startsWith("..") && !path.isAbsolute(fromHome) ? path.join("~", fromHome) : file;
 }
 
 function describe(changes: FileChange[], dir: string): string[] {
@@ -80,6 +94,38 @@ export function listHarnesses(cwd: string = process.cwd()): void {
     console.log(`${pc.bold(h.id.padEnd(idWidth))}${h.displayName.padEnd(nameWidth)}${DETECTED_LABEL[result.installed ? "yes" : "no"]}`);
     console.log(`${" ".repeat(idWidth)}${pc.dim(h.summary)}`);
   }
+}
+
+/**
+ * What `npm run setup` prints: the one-time command for this machine.
+ *
+ * Runs before any config exists — that is the whole point, it fires straight after the
+ * build — so it detects from the cwd like `--list` does and never resolves a context.
+ * With nothing detected it still prints the commands, because "no harness found" on a
+ * fresh machine usually means the editor is installed elsewhere, not that there is none.
+ */
+export function suggestInstall(cwd: string = process.cwd()): void {
+  const detected = detectAll(detectTarget(cwd)).filter((d) => d.result.installed);
+  const ids = detected.length ? detected.map((d) => d.harness.id) : ["claude-code"];
+
+  console.log(pc.bold("\nlisa is built and on your PATH.\n"));
+  if (detected.length) {
+    console.log(`Detected on this machine: ${detected.map((d) => pc.bold(d.harness.id)).join(", ")}`);
+  } else {
+    console.log(pc.dim("No harness detected here — if you use one, the command below still wires it."));
+  }
+  console.log(`
+${pc.bold("Wire it into your agent — once per machine:")}
+
+${ids.map((id) => `  ${pc.green(`lisa install ${id}`)}`).join("\n")}
+
+${pc.bold("Then, in each app repo you want QA'd:")}
+
+  ${pc.green("lisa init")}     ${pc.dim("— staging URL, login, missions")}
+
+${pc.dim(`Later: \`lisa update\` re-applies the wiring after you pull a new lisa.
+       \`lisa doctor\` says whether this machine is ready to run.`)}
+`);
 }
 
 /**
@@ -132,7 +178,15 @@ function reportStatus(harness: Harness, target: InstallTarget, targetOpts: Targe
   if (status !== "wired") {
     try {
       const actual = wiredMode(harness, target.ctx, targetOpts);
-      if (actual.status === "wired" && actual.mode) note = pc.dim(`  (wired in ${MODE_LABEL[actual.mode]} mode, not ${MODE_LABEL[target.mode]})`);
+      if (actual.status === "wired" && actual.mode) {
+        // Scope is called out only when it differs, for the same reason as mode: a working
+        // per-repo install must not read as broken just because the default moved.
+        const differs = [
+          actual.mode !== target.mode ? `${MODE_LABEL[actual.mode]} mode` : null,
+          actual.scope && actual.scope !== target.scope ? `${actual.scope} scope` : null,
+        ].filter(Boolean);
+        note = pc.dim(`  (wired in ${differs.join(", ")}, not ${MODE_LABEL[target.mode]} / ${target.scope})`);
+      }
     } catch {
       // The status we already have is the answer; this was only ever a nicety.
     }
@@ -169,7 +223,8 @@ export async function installCommand(opts: InstallOptions, ctx: RuntimeContext, 
   // mode. A write on a TTY does ask, because the two modes are a genuine tradeoff and not
   // a preference — see pickToolsMode.
   const readOnly = Boolean(opts.status || opts.print || opts.dryRun);
-  const optionsFor = (mode: ToolsMode): TargetOptions => ({ dir: opts.dir, command: opts.command, mode });
+  const scope = opts.scope ?? DEFAULT_INSTALL_SCOPE;
+  const optionsFor = (mode: ToolsMode): TargetOptions => ({ dir: opts.dir, command: opts.command, mode, scope });
 
   // Everything before the mode is settled runs against this: detection and the harness
   // picker's own wiring hints, neither of which the mode changes in any interesting way.
@@ -262,9 +317,17 @@ export async function installCommand(opts: InstallOptions, ctx: RuntimeContext, 
       ? `${harness.displayName} drives the browser itself — no ANTHROPIC_API_KEY needed for it (\`lisa run\` and CI still need one).`
       : `${harness.displayName} calls run_qa, and lisa drives — that needs its own ANTHROPIC_API_KEY.`;
 
+  const scopeLine =
+    scope === "user"
+      ? `Installed for your whole account — every repo on this machine is wired. Re-run \`lisa update\` after upgrading lisa.`
+      : `Installed into this repo, so it can be committed. Teammates who clone it still need lisa itself on their PATH.`;
+  const caveat = harness.scopeNote?.(scope) ?? null;
+
   if (interactive) {
     p.note(summary, "Files");
     p.note(modeLine, `Mode: ${MODE_LABEL[mode]}`);
+    p.note(scopeLine, `Scope: ${scope}`);
+    if (caveat) p.log.warn(caveat);
     p.note(next, "Next");
     p.outro(pc.green(`lisa is wired into ${harness.displayName}.`));
   } else {
@@ -272,6 +335,8 @@ export async function installCommand(opts: InstallOptions, ctx: RuntimeContext, 
     console.log(pc.dim(`${target.dir}/`));
     console.log(summary);
     console.log(pc.dim(`\n${MODE_LABEL[mode]} mode — ${modeLine}`));
+    console.log(pc.dim(`${scope} scope — ${scopeLine}`));
+    if (caveat) console.log(pc.yellow(`\n⚠ ${caveat}`));
     console.log(`\nNext:\n${next}`);
   }
 }

@@ -3,7 +3,8 @@
  * lisa — terminal app.
  *
  *   lisa init                                scaffold a config
- *   lisa install [harness]                   wire lisa into Claude Code (and friends)
+ *   lisa install [harness]                   wire lisa into Claude Code (and friends), once per machine
+ *   lisa update                              rebuild lisa and refresh that wiring
  *   lisa list                                show configured projects
  *   lisa run <project> [--headed] [--all]    run a QA session, streaming actions live
  *   lisa report <project>                    pretty-print the last report
@@ -21,9 +22,10 @@ import { describeContext, resolveContext, UserError, type RuntimeContext } from 
 import { loadEnvFile } from "./env.js";
 import { printBanner, bannerLine } from "./banner.js";
 import { initCommand, MISSION_KEYS, type MissionKey } from "./commands/init.js";
-import { installCommand, listHarnesses } from "./commands/install.js";
+import { installCommand, listHarnesses, suggestInstall } from "./commands/install.js";
 import { doctorCommand } from "./commands/doctor.js";
-import { harnessIds, parseToolsMode, TOOLS_MODES } from "./harness/index.js";
+import { updateCommand } from "./commands/update.js";
+import { harnessIds, parseInstallScope, parseToolsMode, TOOLS_MODES } from "./harness/index.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -148,9 +150,17 @@ withConfig(program.command("install").description("wire lisa into an agent harne
     "--mode <mode>",
     `native: your agent drives the browser (no second API key) | oneshot: lisa drives and hands back a report (needs ANTHROPIC_API_KEY)`,
   )
+  .option("--scope <scope>", `user: wire once for this machine (default) | project: write into this repo so it can be committed`)
+  .option("--user", "shorthand for --scope user")
+  .option("--project", "shorthand for --scope project")
+  .option("--suggest", "print the one-time install command for this machine, and stop")
   .action(async (harness: string | undefined, o) => {
-    // --list is a catalogue, not an operation: it must work before there is a config.
+    // --list and --suggest are catalogues, not operations: both must work before there is
+    // a config, which is exactly when someone reads them.
     if (o.list) return listHarnesses();
+    if (o.suggest) return suggestInstall();
+    if (o.user && o.project) throw new UserError("--user and --project contradict each other. Pass one.");
+    const scope = o.scope ? parseInstallScope(o.scope) : o.user ? "user" : o.project ? "project" : undefined;
     const quiet = o.yes || o.print || o.status || o.dryRun;
     if (!quiet) printBanner(version);
     await installCommand(
@@ -162,10 +172,20 @@ withConfig(program.command("install").description("wire lisa into an agent harne
         print: o.print,
         status: o.status,
         mode: o.mode ? parseToolsMode(o.mode) : undefined,
+        scope,
       },
       context(o.config),
       harness,
     );
+  });
+
+withConfig(program.command("update").description("rebuild lisa and refresh the harness wiring it already installed"))
+  .option("-n, --check", "report what would change, write nothing")
+  .option("--no-build", "only refresh the wiring; don't pull and rebuild lisa itself")
+  .action(async (o) => {
+    if (!o.check) printBanner(version);
+    // commander sets `build: false` for --no-build and true otherwise.
+    await updateCommand({ check: o.check, noBuild: o.build === false }, context(o.config));
   });
 
 withConfig(program.command("list").description("show configured projects")).action((o) => {

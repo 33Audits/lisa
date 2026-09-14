@@ -63,11 +63,31 @@ export function shiftHeadings(md: string, by: number): string {
     .join("\n");
 }
 
-/** The workflow body: sections at `##`, no title (the wrapper supplies one). */
+/**
+ * How the brief describes what config it is talking to.
+ *
+ * A user-scope brief is read in repos that did not exist when it was written, so it must
+ * not name one. It describes the discovery rule instead — which is exactly what the
+ * server does at runtime, since a user-scope registration carries no `--config`.
+ */
+function wiringSentence(target: InstallTarget): string {
+  return target.scope === "user"
+    ? "lisa is installed for your whole account: it reads the `lisa.config.yaml` belonging to whichever repo you're working in."
+    : `lisa is wired to \`${forDisplay(target.ctx.configPath, target.dir)}\`.`;
+}
+
+/**
+ * The workflow body: sections at `##`, no title (the wrapper supplies one).
+ *
+ * Paths render relative to the *config root* rather than the install directory. For a
+ * project install those are the same directory; for a user install it keeps the artifact
+ * path generic (`.lisa/artifacts/screenshots`) instead of baking in whichever repo
+ * happened to be current when the machine was set up.
+ */
 export function renderWorkflow(target: InstallTarget, brief: Brief = "mcp"): string {
   return render(readTemplate(WORKFLOW_TEMPLATE[brief]), {
-    artifacts: forDisplay(target.ctx.shotsDir, target.dir),
-    config: forDisplay(target.ctx.configPath, target.dir),
+    artifacts: forDisplay(target.ctx.shotsDir, target.ctx.root),
+    wiring: wiringSentence(target),
   });
 }
 

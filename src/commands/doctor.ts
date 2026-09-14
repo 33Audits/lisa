@@ -13,7 +13,7 @@ import { describeContext, resolveContext, type RuntimeContext } from "../paths.j
 import { loadConfig, resolveCredentials } from "../config.js";
 import { loadEnvFile } from "../env.js";
 import { chromiumInstalled } from "../browser.js";
-import { HARNESSES, wiredMode, type HarnessStatus, type ToolsMode } from "../harness/index.js";
+import { HARNESSES, wiredMode, type HarnessStatus, type InstallScope, type ToolsMode } from "../harness/index.js";
 
 type Level = "ok" | "warn" | "fail";
 
@@ -38,6 +38,7 @@ interface HarnessRow {
   id: string;
   status: HarnessStatus;
   mode: ToolsMode | null;
+  scope: InstallScope | null;
   error?: string;
 }
 
@@ -50,7 +51,7 @@ function harnessRows(ctx: RuntimeContext): HarnessRow[] {
     try {
       return { id: h.id, ...wiredMode(h, ctx) };
     } catch (e) {
-      return { id: h.id, status: "not-wired" as const, mode: null, error: firstLine(e) };
+      return { id: h.id, status: "not-wired" as const, mode: null, scope: null, error: firstLine(e) };
     }
   });
 }
@@ -126,10 +127,12 @@ export async function doctorCommand(configFlag?: string): Promise<void> {
         console.log(`  ${row.id.padEnd(width)}${pc.red("needs attention")}  ${pc.dim(row.error)}`);
         continue;
       }
-      // Naming the mode is the whole reason doctor checks both: "wired" without it can't
-      // distinguish an install that needs an API key from one that doesn't.
-      const mode = row.mode ? pc.dim(`  (${row.mode})`) : "";
-      console.log(`  ${row.id.padEnd(width)}${STATUS_LABEL[row.status]}${mode}`);
+      // Naming the mode is the whole reason doctor checks every combination: "wired"
+      // without it can't distinguish an install that needs an API key from one that
+      // doesn't. Scope rides along for the same reason — it tells you whether a new repo
+      // will already be wired or still needs `lisa install`.
+      const facts = [row.scope, row.mode].filter(Boolean).join(", ");
+      console.log(`  ${row.id.padEnd(width)}${STATUS_LABEL[row.status]}${facts ? pc.dim(`  (${facts})`) : ""}`);
     }
   }
 
