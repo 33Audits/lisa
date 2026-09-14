@@ -315,12 +315,25 @@ lisa finds it by walking up from the current directory to the repo root, then fa
 | `LISA_STATE_DIR` | `.lisa/state` | seen-bug fingerprints |
 | `LISA_ARTIFACTS_DIR` | `.lisa/artifacts` | reports + screenshots (namespaced per project) |
 | `LISA_NO_BANNER` | — | suppress the wordmark |
+| `LISA_NO_UPDATE_CHECK` | — | no update nudge, no "what changed" summary, no background check |
 | `ANTHROPIC_API_KEY` | — | required for `lisa run`, CI, and `oneshot` mode. **Not needed for a native harness.** |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | — | don't lazily download Chromium; fail instead if it's missing |
 
 `LISA_MODEL` and `LISA_MAX_TURNS` doing nothing in native mode surprises people, so it's
 worth saying plainly: in native mode there is no lisa agent loop to configure. Your
 harness's model is the model, and its own turn limits are the budget.
+
+### Staying current
+
+lisa tells you when your install is behind and what to run about it — `lisa update` for a git
+checkout, `npm i -g lisa-cli@latest` for a package install. The check itself runs detached
+after a command finishes and is cached for a day, so nothing ever waits on it; the nudge is a
+single line on stderr and is suppressed off-TTY and in CI.
+
+Once a newer version actually runs, lisa prints the [CHANGELOG](CHANGELOG.md) sections
+between the version you were on and the one you're now on, with **Actions required** in full.
+That's the contract for releases: anything a user has to do goes under that heading, or they
+won't be told. Set `LISA_NO_UPDATE_CHECK=1` to turn the whole mechanism off.
 
 Run `lisa doctor` to check all of the above (API key, Chromium, config, harness wiring and
 mode) in one shot. With a native harness wired, a missing `ANTHROPIC_API_KEY` is a ⚠ rather
