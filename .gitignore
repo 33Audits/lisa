@@ -1,0 +1,13 @@
+node_modules/
+dist/
+
+# lisa runtime output (state fingerprints, reports, screenshots)
+.lisa/
+
+# secrets — credentials live here, never in lisa.config.yaml
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

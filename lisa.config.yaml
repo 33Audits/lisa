@@ -1,0 +1,33 @@
+# One entry per project the QA agent should cover.
+# Credentials are never stored here — only the names of env vars that hold them.
+
+projects:
+  - name: acme-dashboard
+    base_url: https://staging.dashboard.internal.example.com
+    allowed_host: staging.dashboard.internal.example.com   # agent is blocked from navigating elsewhere
+    credentials_env:
+      username: ACME_QA_USERNAME
+      password: ACME_QA_PASSWORD
+    mission: |
+      1. Go to the login page and sign in with the provided test credentials.
+      2. Verify the home dashboard loads: charts render, no console errors, no failed requests.
+      3. Open the "Reports" section, generate the default report, and verify it displays data.
+      4. Open "Settings > Profile", edit the display name to "QA Agent Test", save, and
+         verify the change persists after a page reload. (Non-destructive — this is a dummy account.)
+      5. Try one invalid action on purpose: submit the profile form with an empty name and
+         verify a sensible validation message appears.
+      6. Log out and verify you are returned to the login page.
+
+  - name: acme-checkout
+    base_url: https://staging.shop.internal.example.com
+    allowed_host: staging.shop.internal.example.com
+    credentials_env:
+      username: SHOP_QA_USERNAME
+      password: SHOP_QA_PASSWORD
+    mission: |
+      1. Log in with the test account.
+      2. Search for any product, open its detail page, add it to the cart.
+      3. Go to the cart, change the quantity to 2, and verify the total updates correctly.
+      4. Proceed to checkout up to (but NOT including) the final payment confirmation.
+         Do not complete a payment. Verify each checkout step renders and validates properly.
+      5. Empty the cart and verify the empty-cart state displays correctly.

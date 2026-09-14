@@ -1,0 +1,58 @@
+name: LISA
+
+on:
+  schedule:
+    - cron: "0 6 * * 1-5"   # 06:00 UTC every weekday — adjust per taste
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Project name (blank = all)"
+        required: false
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [acme-dashboard, acme-checkout]   # keep in sync with lisa.config.yaml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      # Persist the seen-bugs state between runs so Slack only gets NEW bugs
+      - name: Restore dedupe state
+        uses: actions/cache@v4
+        with:
+          path: .lisa/state
+          key: lisa-state-${{ matrix.project }}-${{ github.run_id }}
+          restore-keys: lisa-state-${{ matrix.project }}-
+
+      - name: Run lisa
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ACME_QA_USERNAME: ${{ secrets.ACME_QA_USERNAME }}
+          ACME_QA_PASSWORD: ${{ secrets.ACME_QA_PASSWORD }}
+          SHOP_QA_USERNAME: ${{ secrets.SHOP_QA_USERNAME }}
+          SHOP_QA_PASSWORD: ${{ secrets.SHOP_QA_PASSWORD }}
+        run: node dist/cli.js run "${{ github.event.inputs.project || matrix.project }}"
+
+      - name: Upload screenshots + report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lisa-artifacts-${{ matrix.project }}-${{ github.run_number }}
+          path: .lisa/artifacts/
+          if-no-files-found: ignore

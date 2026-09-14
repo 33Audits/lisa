@@ -1,0 +1,49 @@
+{
+  "name": "lisa-cli",
+  "version": "1.0.0",
+  "description": "LISA — autonomous QA agent. Claude drives a real browser through your staging app, finds bugs, and reports them. Terminal app, MCP server for any agent harness, and CI runner.",
+  "type": "module",
+  "bin": {
+    "lisa": "dist/cli.js",
+    "lisa-mcp": "dist/mcp-server.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "qa",
+    "testing",
+    "playwright",
+    "claude",
+    "agent",
+    "mcp",
+    "e2e"
+  ],
+  "scripts": {
+    "build": "tsc -p . && chmod +x dist/cli.js dist/mcp-server.js",
+    "typecheck": "tsc -p . --noEmit",
+    "dev": "tsx src/cli.ts",
+    "mcp": "tsx src/mcp-server.ts",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "commander": "^12.0.0",
+    "js-yaml": "^4.1.0",
+    "picocolors": "^1.1.0",
+    "playwright": "^1.47.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
