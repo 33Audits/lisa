@@ -1,0 +1,9 @@
+  - name: {{name}}
+    base_url: {{base_url}}
+    # The agent is blocked from navigating anywhere but this host.
+    allowed_host: {{allowed_host}}
+    {{credentials}}
+    # The test plan. Be specific — this is the whole brief the agent works from.
+    # Keep it non-destructive: no payments, no deletions, no real customer data.
+    mission: |
+      {{mission}}

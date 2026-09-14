@@ -1,0 +1,13 @@
+# lisa — autonomous QA agent
+#
+# One entry per project lisa should test.
+#
+# Credentials never live in this file. Store the *names* of the env vars that hold
+# them here, and put the values in .env (gitignored) or your CI secret store.
+#
+#   lisa list             show what's configured
+#   lisa run <project>    run a session
+#   lisa where            show which config and directories are in use
+#   lisa init             add another project
+
+projects:

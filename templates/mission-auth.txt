@@ -1,0 +1,12 @@
+1. Open the login page and sign in with the provided test credentials.
+2. Verify the landing page after login renders: real data, no console errors,
+   no failed requests, no spinner that never resolves.
+3. Walk the main navigation. Open every top-level page and check each renders
+   real content rather than an empty state or an error boundary.
+4. Open the account or profile settings, change one harmless field, save it, then
+   reload the page and verify the change persisted. (Dummy account — safe to edit.)
+5. Submit that same form with the field emptied and verify a sensible validation
+   message appears instead of a crash or a silent no-op.
+6. Log out and verify you land back on the login page and the session is gone —
+   navigating back to an authenticated page should not show stale data.
+7. Screenshot anything that looks wrong.

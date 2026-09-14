@@ -1,0 +1,11 @@
+1. Load the home page. Verify it renders, with no console errors and no failed requests.
+2. Walk the main navigation. Open every top-level page in turn and check each one
+   renders real content rather than an empty state, a spinner that never resolves,
+   or an error boundary.
+3. Exercise the primary interactive element on each page — a search box, a filter,
+   a tab strip — and verify the page responds to it.
+4. Submit one form with deliberately invalid input and verify a sensible validation
+   message appears instead of a crash or a silent no-op.
+5. Resize to a narrow viewport and confirm the layout holds: no overlapping text,
+   no horizontal scrollbar, navigation still reachable.
+6. Screenshot anything that looks wrong.

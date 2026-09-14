@@ -19,6 +19,7 @@ import { z } from "zod";
 import { runProject, loadLastReport, resetState } from "./core.js";
 import { loadProjects, findProject } from "./config.js";
 import { resolveContext, type RuntimeContext } from "./paths.js";
+import { loadEnvFile } from "./env.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -28,9 +29,14 @@ const CONFIG = configIdx >= 0 ? process.argv[configIdx + 1] : undefined;
 /**
  * Resolved per call, not at boot: a harness spawns us with its own cwd, and a config
  * problem should reach the agent as a readable tool error rather than killing the server.
+ *
+ * `.env` beside the config is loaded here too — a harness-spawned process inherits the
+ * harness's environment, which is not where the project's test credentials live.
  */
 function ctx(): RuntimeContext {
-  return resolveContext(CONFIG);
+  const c = resolveContext(CONFIG);
+  loadEnvFile(c.root);
+  return c;
 }
 
 const text = (body: string) => ({ content: [{ type: "text" as const, text: body }] });

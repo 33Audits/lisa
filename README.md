@@ -16,13 +16,17 @@ An autonomous "QA person": Claude drives a real browser through your staging app
 | **Scheduled / CI** | GitHub Actions cron (included) or Docker | Unattended runs, new bugs → Slack |
 
 ```
-src/core.ts        engine: agent loop, Playwright tools, dedupe, Slack (no stdout)
-src/cli.ts         terminal app (commander + live action stream)
-src/mcp-server.ts  MCP stdio server
-src/paths.ts       config / state / artifact resolution
-src/config.ts      config loading + validation
-src/banner.ts      wordmark
-lisa.config.yaml   your projects + missions
+src/core.ts          engine: agent loop, Playwright tools, dedupe, Slack (no stdout)
+src/cli.ts           terminal app (commander + live action stream)
+src/mcp-server.ts    MCP stdio server
+src/paths.ts         config / state / artifact resolution
+src/config.ts        config loading + validation
+src/env.ts           .env loading (beside the config, never clobbers process.env)
+src/templates.ts     template lookup + rendering
+src/commands/init.ts `lisa init`
+src/banner.ts        wordmark
+templates/           config + starter-mission templates
+lisa.config.yaml     your projects + missions
 ```
 
 ## Install
@@ -31,14 +35,46 @@ lisa.config.yaml   your projects + missions
 npm install                      # also downloads Playwright's Chromium (postinstall)
 npm run build                    # → dist/, makes `lisa` and `lisa-mcp` bins
 npm link                         # optional: puts `lisa` on your PATH
-
-export ANTHROPIC_API_KEY=sk-ant-...
-export ACME_QA_USERNAME=qa-test-user ACME_QA_PASSWORD=hunter2
 ```
+
+Then, from your app's repo:
+
+```bash
+lisa init
+```
+
+It asks for a project name, a staging URL, whether the app needs a login, and which
+starter mission to begin from — then writes `lisa.config.yaml`, adds the credential
+env vars to `.env.example`, and makes sure `.gitignore` covers `.env` and `.lisa/`.
+Run it again later to add another project.
+
+Every prompt is also a flag, so it scripts:
+
+```bash
+lisa init --yes --url https://staging.acme.com --name acme-dashboard \
+          --login --mission auth
+```
+
+`--yes` refuses a URL that doesn't look like a staging host unless you also pass
+`--non-production`. lisa clicks buttons in a real browser; that gate is deliberate.
+
+Other flags: `--global` (write to `~/.config/lisa/config.yaml`), `--force` (replace an
+existing config instead of adding to it), `--name`, `--url`, `--no-login`,
+`--username-env`, `--password-env`, `--mission smoke|auth|minimal`.
+
+Finally fill in `.env`:
+
+```bash
+cp .env.example .env    # then edit
+```
+
+lisa reads `.env` from the directory its config lives in. Anything already set in the
+environment wins, so CI secrets are never overwritten by a checked-out file.
 
 ## 1. Terminal
 
 ```bash
+lisa init                              # scaffold a config (see above)
 lisa list                              # configured projects (flags unset credentials)
 lisa run acme-dashboard                # headless run, streams every action live
 lisa run acme-dashboard --headed       # opens a Chromium window so you can watch
@@ -77,9 +113,9 @@ This is the interesting mode: lisa finds it, the coding agent (which has your so
 
 ## Config
 
-`lisa.config.yaml` — one entry per project: `base_url`, `allowed_host` (optional; defaults to the base_url host, navigation outside it is blocked), `credentials_env` (env var *names*, never values), and a plain-English `mission`.
+`lisa.config.yaml` — written by `lisa init`, then hand-edited. One entry per project: `base_url`, `allowed_host` (optional; defaults to the base_url host, navigation outside it is blocked), `credentials_env` (env var *names*, never values), and a plain-English `mission`. The mission is the whole brief — the more specific it is, the better the report.
 
-lisa finds it by walking up from the current directory to the repo root, then falling back to `~/.config/lisa/config.yaml`. State and artifacts anchor to wherever the config was found — never to your current directory. Run `lisa where` to see what resolved.
+lisa finds it by walking up from the current directory to the repo root, then falling back to `~/.config/lisa/config.yaml`. State and artifacts anchor to wherever the config was found — never to your current directory. `.env` is read from that same directory. Run `lisa where` to see what resolved.
 
 | Env var | Default | Purpose |
 |---|---|---|

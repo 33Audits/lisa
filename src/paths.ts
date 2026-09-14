@@ -72,7 +72,18 @@ export function contextFor(configPath: string, scope: ConfigScope): RuntimeConte
   return { configPath: resolved, root, stateDir, artifactsDir, shotsDir: path.join(artifactsDir, "screenshots"), scope };
 }
 
-export class ConfigNotFoundError extends Error {
+/**
+ * Something the user can fix by changing a flag or a file. Entrypoints print the
+ * message alone — a stack trace here is noise that buries the instruction.
+ */
+export class UserError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserError";
+  }
+}
+
+export class ConfigNotFoundError extends UserError {
   constructor() {
     super(
       `No lisa config found.\n\n` +

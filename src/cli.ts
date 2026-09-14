@@ -2,6 +2,7 @@
 /**
  * lisa — terminal app.
  *
+ *   lisa init                                scaffold a config
  *   lisa list                                show configured projects
  *   lisa run <project> [--headed] [--all]    run a QA session, streaming actions live
  *   lisa report <project>                    pretty-print the last report
@@ -14,10 +15,23 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { runProject, loadLastReport, resetState, type AgentEvent, type Report, type Bug } from "./core.js";
 import { loadProjects, findProject, resolveCredentials } from "./config.js";
-import { resolveContext, ConfigNotFoundError, type RuntimeContext } from "./paths.js";
+import { resolveContext, UserError, type RuntimeContext } from "./paths.js";
+import { loadEnvFile } from "./env.js";
 import { printBanner, bannerLine } from "./banner.js";
+import { initCommand, MISSION_KEYS, type MissionKey } from "./commands/init.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+
+/**
+ * Resolve the context and load the credentials sitting beside it. `.env` is read from
+ * the config root rather than the cwd, so a global install picks up the right project's
+ * secrets; anything already in process.env wins, so CI secrets are never clobbered.
+ */
+function context(configFlag?: string): RuntimeContext {
+  const ctx = resolveContext(configFlag);
+  loadEnvFile(ctx.root);
+  return ctx;
+}
 
 const SEV = { critical: pc.red("CRITICAL"), major: pc.yellow("MAJOR"), minor: pc.cyan("minor") } as const;
 
@@ -81,8 +95,38 @@ const program = new Command()
 
 const withConfig = (cmd: Command) => cmd.option("-c, --config <path>", "path to lisa.config.yaml");
 
+withConfig(program.command("init").description("scaffold a lisa.config.yaml for a project"))
+  .option("-y, --yes", "don't prompt; use flags and defaults (needs --url)")
+  .option("-g, --global", `write to the global config instead of this directory`)
+  .option("-f, --force", "replace an existing config instead of adding to it")
+  .option("--name <name>", "project name (default: this directory's name)")
+  .option("--url <url>", "staging base URL")
+  .option("--login", "the app needs a login")
+  .option("--no-login", "the app needs no login")
+  .option("--username-env <var>", "env var holding the test username")
+  .option("--password-env <var>", "env var holding the test password")
+  .option("--mission <kind>", `starter mission: ${MISSION_KEYS.join(" | ")}`)
+  .option("--non-production", "assert the URL is not production (required by --yes on a prod-looking host)")
+  .action(async (o) => {
+    if (!o.yes) printBanner(version);
+    await initCommand({
+      config: o.config,
+      global: o.global,
+      yes: o.yes,
+      force: o.force,
+      name: o.name,
+      url: o.url,
+      // commander only defines `login` once --login or --no-login is seen.
+      login: "login" in o ? o.login : undefined,
+      usernameEnv: o.usernameEnv,
+      passwordEnv: o.passwordEnv,
+      mission: o.mission as MissionKey | undefined,
+      nonProduction: o.nonProduction,
+    });
+  });
+
 withConfig(program.command("list").description("show configured projects")).action((o) => {
-  const ctx = resolveContext(o.config);
+  const ctx = context(o.config);
   for (const p of loadProjects(ctx)) {
     const { missing } = resolveCredentials(p);
     const warn = missing.length ? pc.yellow(`  ⚠ unset: ${missing.join(", ")}`) : "";
@@ -98,7 +142,7 @@ withConfig(program.command("run").description("run a QA session"))
   .option("--no-slack", "don't post to Slack, just print")
   .option("--json", "print the raw report JSON at the end")
   .action(async (name: string | undefined, o) => {
-    const ctx = resolveContext(o.config);
+    const ctx = context(o.config);
     const projects = o.all ? loadProjects(ctx) : name ? [findProject(ctx, name)] : null;
     if (!projects) {
       console.error(pc.red("Provide a project name or --all. See `lisa list`."));
@@ -119,7 +163,7 @@ withConfig(program.command("run").description("run a QA session"))
 withConfig(program.command("report").description("show the last report for a project"))
   .argument("<project>")
   .action((name: string, o) => {
-    const ctx = resolveContext(o.config);
+    const ctx = context(o.config);
     const r = loadLastReport(ctx, name);
     if (!r) {
       console.error(pc.red(`No report yet for ${name}. Run \`lisa run ${name}\`.`));
@@ -132,13 +176,13 @@ withConfig(program.command("report").description("show the last report for a pro
 withConfig(program.command("reset").description("forget previously-seen bugs for a project"))
   .argument("<project>")
   .action((name: string, o) => {
-    const ctx = resolveContext(o.config);
+    const ctx = context(o.config);
     resetState(ctx, name);
     console.log(`Cleared seen-bug state for ${pc.bold(name)}.`);
   });
 
 withConfig(program.command("where").description("show which config and directories are in use")).action((o) => {
-  const ctx: RuntimeContext = resolveContext(o.config);
+  const ctx: RuntimeContext = context(o.config);
   const row = (k: string, v: string) => console.log(`  ${pc.dim(k.padEnd(10))} ${v}`);
   row("scope", ctx.scope);
   row("config", ctx.configPath);
@@ -153,8 +197,8 @@ if (process.argv.length <= 2) {
 }
 
 program.parseAsync().catch((err) => {
-  // Config problems are user errors, not crashes — no stack trace.
-  if (err instanceof ConfigNotFoundError) console.error(pc.red(err.message));
+  // Bad config or bad flags are user errors, not crashes — no stack trace.
+  if (err instanceof UserError) console.error(pc.red(err.message));
   else console.error(pc.red(err?.stack ?? String(err)));
   process.exit(1);
 });

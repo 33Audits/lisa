@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import yaml from "js-yaml";
 import { z } from "zod";
-import type { RuntimeContext } from "./paths.js";
+import { UserError, type RuntimeContext } from "./paths.js";
 
 const ProjectSchema = z
   .object({
@@ -38,10 +38,10 @@ export function loadConfig(ctx: RuntimeContext): LisaConfig {
   try {
     raw = yaml.load(fs.readFileSync(ctx.configPath, "utf-8"));
   } catch (e: any) {
-    throw new Error(`Could not parse ${ctx.configPath}:\n  ${e?.message ?? e}`);
+    throw new UserError(`Could not parse ${ctx.configPath}:\n  ${e?.message ?? e}`);
   }
   const parsed = ConfigSchema.safeParse(raw);
-  if (!parsed.success) throw new Error(`Invalid config at ${ctx.configPath}:\n${formatIssues(parsed.error)}`);
+  if (!parsed.success) throw new UserError(`Invalid config at ${ctx.configPath}:\n${formatIssues(parsed.error)}`);
   return parsed.data;
 }
 
@@ -53,7 +53,7 @@ export function findProject(ctx: RuntimeContext, name: string): ProjectConfig {
   const projects = loadProjects(ctx);
   const match = projects.find((p) => p.name === name);
   if (match) return match;
-  throw new Error(`No project named "${name}" in ${ctx.configPath}.\n  Available: ${projects.map((p) => p.name).join(", ")}`);
+  throw new UserError(`No project named "${name}" in ${ctx.configPath}.\n  Available: ${projects.map((p) => p.name).join(", ")}`);
 }
 
 /** Resolve a project's credential env var names to their values. */
