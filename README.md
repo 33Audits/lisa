@@ -12,7 +12,7 @@ An autonomous "QA person": Claude drives a real browser through your staging app
 | Surface | Entry point | Use it for |
 |---|---|---|
 | **Terminal** | `lisa run <project>` | Watch it work, iterate on missions, one-off checks |
-| **Your agent harness** | MCP server (`lisa-mcp`) | "Run QA and fix what it finds" — QA → fix → re-verify loop |
+| **Your agent harness** | MCP server (`lisa-mcp`), or `lisa run --json` for harnesses without MCP | "Run QA and fix what it finds" — QA → fix → re-verify loop |
 | **Scheduled / CI** | GitHub Actions cron (included) or Docker | Unattended runs, new bugs → Slack |
 
 ```
@@ -27,7 +27,7 @@ src/commands/init.ts `lisa init`
 src/commands/install.ts `lisa install`
 src/harness/         harness adapters: plan() what would change, then apply it
 src/banner.ts        wordmark
-templates/           config, starter missions, and the agent workflow
+templates/           config, starter missions, and the agent briefs
 lisa.config.yaml     your projects + missions
 ```
 
@@ -82,6 +82,8 @@ lisa list                              # configured projects (flags unset creden
 lisa run acme-dashboard                # headless run, streams every action live
 lisa run acme-dashboard --headed       # opens a Chromium window so you can watch
 lisa run --all --no-slack              # everything, print only
+lisa run acme-dashboard --json         # + the full report as JSON, for piping
+lisa run acme-dashboard --mission "…"  # one focused run instead of the configured mission
 lisa report acme-dashboard             # re-print the last report
 lisa reset acme-dashboard              # forget seen bugs; next run reports all
 lisa where                             # which config + directories are in use
@@ -89,24 +91,40 @@ lisa where                             # which config + directories are in use
 
 While it runs you'll see the agent's one-line reasoning in grey, each browser action (`▶ navigate …`, `▶ click …`), and `read_page` results flagged red when console errors or failed requests were captured. `lisa run` exits with code 2 if any **new critical** bug was found, so CI can gate on it.
 
+`--mission` is the CLI half of the MCP server's `mission_override` — it's what makes
+re-verifying one fix possible without editing the config, and it's what the `generic`
+adapter's brief tells a shell-only agent to use.
+
 ## 2. Inside an agent harness
 
 From your app's repo:
 
 ```bash
-lisa install claude-code
+lisa install              # pick from a list
+lisa install claude-code  # or name one
 ```
 
-That writes two files and leaves everything else alone:
+Five adapters. Each writes an MCP registration (except `generic`) plus a brief telling the
+agent how to run QA, triage, fix, and re-verify:
 
-| File | What it is |
-|---|---|
-| `.mcp.json` | the MCP server registration, merged in beside your other servers |
-| `.claude/skills/lisa/SKILL.md` | the workflow — how to run QA, triage, fix, and re-verify |
+| Harness | MCP registration | Agent brief |
+|---|---|---|
+| `claude-code` | `.mcp.json` | `.claude/skills/lisa/SKILL.md` |
+| `codex` | `~/.codex/config.toml` → `[mcp_servers.lisa]` | `AGENTS.md` section |
+| `cursor` | `.cursor/mcp.json` | `.cursor/rules/lisa.mdc` |
+| `windsurf` | `~/.codeium/windsurf/mcp_config.json` | `AGENTS.md` section |
+| `generic` | *(none — shells out to `lisa run --json`)* | `AGENTS.md` section |
 
-Both are project-scoped, so they travel with the repo and your team gets the wiring
-through git. The registration carries an **absolute** `--config` path: the harness starts
-the server with its own working directory, so config discovery can't be relied on.
+`generic` is the tier that makes "any agent harness" true rather than marketing: no MCP,
+just a brief telling anything with a shell tool to run `lisa run <project> --json` and
+parse the result. The CLI is the contract; MCP is the enhancement.
+
+Claude Code and Cursor are wired entirely inside the repo, so the wiring travels through
+git. Codex and Windsurf keep MCP servers in one user-global file, so only the brief can
+travel — a teammate who clones the repo runs `lisa install codex` once for the server.
+
+Every registration carries an **absolute** `--config` path: the harness starts the server
+with its own working directory, so config discovery can't be relied on.
 
 Then:
 
@@ -131,11 +149,28 @@ Other flags: `--dir <path>` (write harness files somewhere other than the config
 directory) and `--command "<cmd>"` (override how the harness starts the MCP server —
 by default `lisa-mcp` if it's on PATH, otherwise the `dist/mcp-server.js` in this checkout).
 
-Re-running `install` is safe: files lisa owns are regenerated, `.mcp.json` is merged one
-key at a time, and a `.mcp.json` it can't parse is a hard stop rather than an overwrite.
+Re-running `install` is safe. Files lisa generates whole (`SKILL.md`, `lisa.mdc`) are
+rewritten; everything else is a surgical edit of the part lisa owns:
 
-> Codex, Cursor, Windsurf, and a generic `AGENTS.md` adapter are next; they plug into the
-> same registry. Today `claude-code` is the one that ships.
+- **JSON** (`.mcp.json`, `.cursor/mcp.json`, `mcp_config.json`) — one key under
+  `mcpServers`, preserving the file's existing indent width and every other server.
+- **TOML** (`~/.codex/config.toml`) — the `[mcp_servers.lisa]` table is swapped in place.
+  Your comments, model settings, other servers, and even `[mcp_servers.lisa.env]` survive.
+  It's text surgery, not a parse-and-re-dump, so the file still looks like the one you wrote.
+- **Markdown** (`AGENTS.md`) — a `<!-- lisa:start -->` … `<!-- lisa:end -->` block. The rest
+  of the file is untouchable text.
+
+A file lisa can't confidently read is a **hard stop, never an overwrite**: unparseable JSON,
+`mcpServers` that isn't an object, `[[mcp_servers]]` as an array of tables, a duplicate
+`[mcp_servers.lisa]`, a half-deleted marker pair. Each exits 1 with one sentence saying what
+to fix. The point of merging is to protect the config; guessing at a file we failed to parse
+would defeat it.
+
+> Codex, Windsurf, and `generic` share one `AGENTS.md` block rather than each claiming a
+> private one — two lisa sections briefing the same agent differently would be worse than
+> one. So installing `generic` over `codex` rewrites the block from the MCP brief to the CLI
+> brief, and `lisa install codex --status` then reports **out of date**. That's status being
+> derived from the plan rather than self-reported: the conflict is visible instead of silent.
 
 ## 3. Scheduled / CI
 

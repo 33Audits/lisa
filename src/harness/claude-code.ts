@@ -11,11 +11,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { UserError } from "../paths.js";
-import { readTemplate, render } from "../templates.js";
-import { mergeJson, setMcpServer } from "./merge.js";
-import { renderWorkflow, SKILL_DESCRIPTION } from "./instructions.js";
-import { change, readIfExists, type DetectResult, type DetectTarget, type FileChange, type Harness, type InstallTarget } from "./types.js";
+import { mcpJsonChange } from "./merge.js";
+import { renderDocument } from "./instructions.js";
+import { change, type DetectResult, type DetectTarget, type FileChange, type Harness, type InstallTarget } from "./types.js";
 
 export const MCP_FILE = ".mcp.json";
 export const SKILL_FILE = path.join(".claude", "skills", "lisa", "SKILL.md");
@@ -34,28 +32,9 @@ export const claudeCode: Harness = {
   },
 
   plan(target: InstallTarget): FileChange[] {
-    const mcpPath = path.join(target.dir, MCP_FILE);
-    const before = readIfExists(mcpPath);
-    const entry = { command: target.server.command, args: target.server.args };
-
-    const contents = mergeJson(
-      before,
-      (doc) => {
-        if (!setMcpServer(doc, "lisa", entry)) {
-          throw new UserError(`${mcpPath} has an \`mcpServers\` key that isn't an object. Fix it by hand, then re-run \`lisa install\`.`);
-        }
-      },
-      mcpPath,
-    );
-
-    const skill = render(readTemplate("skill.md"), {
-      description: SKILL_DESCRIPTION,
-      workflow: renderWorkflow(target),
-    });
-
     return [
-      { path: mcpPath, contents, before, label: "MCP server registration" },
-      change(path.join(target.dir, SKILL_FILE), skill, "agent workflow (skill)"),
+      mcpJsonChange(path.join(target.dir, MCP_FILE), target.server),
+      change(path.join(target.dir, SKILL_FILE), renderDocument("skill.md", target, "mcp"), "agent workflow (skill)"),
     ];
   },
 

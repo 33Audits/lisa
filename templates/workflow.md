@@ -1,6 +1,4 @@
-# QA agent workflow
-
-{{invocation}}
+You have MCP tools from the `lisa` server: `list_qa_projects`, `run_qa`, `get_last_qa_report`, `reset_qa_state`.
 
 ## Running QA
 

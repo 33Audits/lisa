@@ -11,6 +11,7 @@
  */
 
 import { UserError } from "../paths.js";
+import { readIfExists, type FileChange, type ServerCommand } from "./types.js";
 
 /** Infer the indent width of an existing JSON document; 2 when there's nothing to go on. */
 export function detectIndent(text: string): number {
@@ -62,4 +63,22 @@ export function setMcpServer(doc: Record<string, any>, name: string, entry: unkn
   if (existing !== undefined && (existing === null || typeof existing !== "object" || Array.isArray(existing))) return false;
   doc.mcpServers = { ...(existing ?? {}), [name]: entry };
   return true;
+}
+
+/**
+ * Register lisa in an `{ "mcpServers": { … } }` file. Claude Code's `.mcp.json` and
+ * Cursor's `.cursor/mcp.json` are the same document under two names, so they share this.
+ */
+export function mcpJsonChange(file: string, server: ServerCommand, label = "MCP server registration"): FileChange {
+  const before = readIfExists(file);
+  const contents = mergeJson(
+    before,
+    (doc) => {
+      if (!setMcpServer(doc, "lisa", { command: server.command, args: server.args })) {
+        throw new UserError(`${file} has an \`mcpServers\` key that isn't an object. Fix it by hand, then re-run \`lisa install\`.`);
+      }
+    },
+    file,
+  );
+  return { path: file, contents, before, label };
 }

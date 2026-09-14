@@ -165,6 +165,7 @@ withConfig(program.command("run").description("run a QA session"))
   .option("--slow-mo <ms>", "delay between browser actions when --headed", "250")
   .option("--no-slack", "don't post to Slack, just print")
   .option("--json", "print the raw report JSON at the end")
+  .option("-m, --mission <text>", "replace the configured mission for this run (e.g. to re-verify one fix)")
   .action(async (name: string | undefined, o) => {
     const ctx = context(o.config);
     const projects = o.all ? loadProjects(ctx) : name ? [findProject(ctx, name)] : null;
@@ -172,6 +173,12 @@ withConfig(program.command("run").description("run a QA session"))
       console.error(pc.red("Provide a project name or --all. See `lisa list`."));
       process.exitCode = 1;
       return;
+    }
+    // Parity with the MCP server's `mission_override`: the CLI is the contract, so
+    // anything an MCP-wired agent can do, an agent with only a shell must be able to too.
+    if (o.mission) {
+      if (o.all) throw new UserError("--mission targets one project's flows; it can't be combined with --all.");
+      projects[0] = { ...projects[0], mission: o.mission };
     }
     for (const p of projects) {
       console.log("\n" + bannerLine(`→ ${p.name}`) + pc.dim(`  ${p.base_url}`));

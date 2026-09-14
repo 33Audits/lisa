@@ -67,9 +67,12 @@ const DETECTED_LABEL = { yes: pc.green("detected"), no: pc.dim("not detected") }
  * usable before `lisa init` has ever run.
  */
 export function listHarnesses(cwd: string = process.cwd()): void {
-  for (const { harness: h, result } of detectAll(detectTarget(cwd))) {
-    console.log(`${pc.bold(h.id.padEnd(14))} ${h.displayName.padEnd(14)} ${DETECTED_LABEL[result.installed ? "yes" : "no"]}`);
-    console.log(`${" ".repeat(15)}${pc.dim(h.summary)}`);
+  const rows = detectAll(detectTarget(cwd));
+  const idWidth = Math.max(...rows.map((r) => r.harness.id.length)) + 2;
+  const nameWidth = Math.max(...rows.map((r) => r.harness.displayName.length)) + 2;
+  for (const { harness: h, result } of rows) {
+    console.log(`${pc.bold(h.id.padEnd(idWidth))}${h.displayName.padEnd(nameWidth)}${DETECTED_LABEL[result.installed ? "yes" : "no"]}`);
+    console.log(`${" ".repeat(idWidth)}${pc.dim(h.summary)}`);
   }
 }
 

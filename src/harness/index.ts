@@ -1,8 +1,9 @@
 /**
  * The harness registry.
  *
- * Step 4 adds codex, cursor, windsurf, and the generic (CLI-only) adapter. They plug in
- * by appending to HARNESSES — nothing in `lisa install` knows any harness by name.
+ * Adapters plug in by appending to HARNESSES — nothing in `lisa install` knows any harness
+ * by name. Order is the order the interactive picker offers them, so `generic` goes last:
+ * it's the fallback you pick when none of the named ones fit.
  */
 
 import os from "node:os";
@@ -10,9 +11,13 @@ import path from "node:path";
 import { UserError, type RuntimeContext } from "../paths.js";
 import { resolveServerCommand } from "./command.js";
 import { claudeCode } from "./claude-code.js";
+import { codex } from "./codex.js";
+import { cursor } from "./cursor.js";
+import { windsurf } from "./windsurf.js";
+import { generic } from "./generic.js";
 import type { DetectResult, DetectTarget, Harness, InstallTarget } from "./types.js";
 
-export const HARNESSES: Harness[] = [claudeCode];
+export const HARNESSES: Harness[] = [claudeCode, codex, cursor, windsurf, generic];
 
 export function harnessIds(): string[] {
   return HARNESSES.map((h) => h.id);
@@ -57,4 +62,4 @@ export function installTarget(ctx: RuntimeContext, opts: TargetOptions = {}, cwd
 }
 
 export * from "./types.js";
-export { claudeCode };
+export { claudeCode, codex, cursor, windsurf, generic };
