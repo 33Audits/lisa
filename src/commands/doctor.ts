@@ -10,7 +10,8 @@
 
 import pc from "picocolors";
 import { describeContext, resolveContext, type RuntimeContext } from "../paths.js";
-import { loadConfig, resolveCredentials } from "../config.js";
+import { loadConfig, resolveCredentials, type ProjectConfig } from "../config.js";
+import { resolveTarget } from "../linear.js";
 import { loadEnvFile } from "../env.js";
 import { chromiumInstalled } from "../browser.js";
 import { HARNESSES, wiredMode, type HarnessStatus, type InstallScope, type ToolsMode } from "../harness/index.js";
@@ -67,6 +68,43 @@ function versionCheck(current: string): void {
   if (pending) check("warn", pending);
   else if (!state.checked_at) check("ok", `lisa ${current} (${installKind()} install) — no update check has run yet`);
   else check("ok", `lisa ${current} is up to date` + pc.dim(`  (checked ${state.checked_at})`));
+}
+
+/**
+ * Whether Linear filing would actually work, per project.
+ *
+ * This is the one check that goes to the network, and it earns it: resolving the team is the
+ * only way to tell a working key from a revoked one, and a typo'd team key from a real one.
+ * Everything it can find — no block, no key, bad key, bad team — is a ⚠ rather than a ✗:
+ * Linear is opt-in, so none of it means lisa is broken, only that no issues will be filed.
+ */
+async function linearChecks(projects: ProjectConfig[]): Promise<void> {
+  const configured = projects.filter((p) => p.linear);
+  if (!configured.length) return;
+
+  // One probe per distinct team+key pair — the common case is every project sharing the
+  // global block, and doctor should not make the same round trip five times to say so.
+  const probed = new Map<string, string | null>();
+  for (const p of configured) {
+    const settings = p.linear!;
+    const key = process.env[settings.api_key_env];
+    if (!key) {
+      check("warn", `${p.name}: Linear configured but ${settings.api_key_env} is not set — no issues will be filed`);
+      continue;
+    }
+    const cacheKey = `${settings.api_key_env}|${settings.team}|${settings.project ?? ""}|${settings.labels.join(",")}`;
+    if (!probed.has(cacheKey)) {
+      try {
+        await resolveTarget(key, settings);
+        probed.set(cacheKey, null);
+      } catch (e) {
+        probed.set(cacheKey, firstLine(e));
+      }
+    }
+    const error = probed.get(cacheKey);
+    if (error) check("warn", `${p.name}: Linear — ${error}`);
+    else check("ok", `${p.name}: Linear team ${settings.team}`);
+  }
 }
 
 export async function doctorCommand(configFlag?: string, version = "unknown"): Promise<void> {
@@ -126,6 +164,7 @@ export async function doctorCommand(configFlag?: string, version = "unknown"): P
         if (missing.length) check("warn", `${p.name}: missing ${missing.join(", ")}`);
         else check("ok", `${p.name}: credentials set`);
       }
+      await linearChecks(projects);
     } catch (e) {
       fail(firstLine(e));
     }

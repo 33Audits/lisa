@@ -20,6 +20,7 @@ using the model access you already pay for, so there's no second API key. [More 
 
 ```
 src/core.ts          engine: browser primitives, agent loop, dedupe, Slack (no stdout)
+src/linear.ts        Linear filing: new bug → issue, re-sighting → comment
 src/cli.ts           terminal app (commander + live action stream)
 src/mcp-server.ts    MCP stdio server (native primitives or oneshot run_qa)
 src/session.ts       live browser sessions for native mode (mutex, idle sweep, shutdown)
@@ -163,7 +164,7 @@ lisa update                            # rebuild lisa + refresh that wiring
 lisa list                              # configured projects (flags unset credentials)
 lisa run acme-dashboard                # headless run, streams every action live
 lisa run acme-dashboard --headed       # opens a Chromium window so you can watch
-lisa run --all --no-slack              # everything, print only
+lisa run --all --no-slack --no-linear  # everything, print only
 lisa run acme-dashboard --json         # + the full report as JSON, for piping
 lisa run acme-dashboard --mission "…"  # one focused run instead of the configured mission
 lisa report acme-dashboard             # re-print the last report
@@ -227,6 +228,9 @@ tradeoff rather than a default with a fallback:
 | Who reasons | your harness's model | lisa's own agent loop |
 | Cost to your session's context | **~1.5–2k tokens per `qa_read_page`, ×N turns** | ~2k once (the report) |
 | Tools | `qa_start_session`, `qa_navigate`, `qa_click`, `qa_fill`, `qa_read_page`, `qa_screenshot`, `qa_wait`, `qa_submit_report`, `qa_end_session` | `run_qa` |
+
+Both surfaces also get `list_qa_projects`, `get_last_qa_report`, `reset_qa_state`, and
+`file_linear_issues` ([below](#filing-to-linear)).
 
 Native moves the cost of reasoning off your API bill and onto your context window: a
 40-turn mission can eat 80k+ tokens of the session you're working in. The brief tells the
@@ -304,6 +308,9 @@ would defeat it.
 
 `lisa.config.yaml` — written by `lisa init`, then hand-edited. One entry per project: `base_url`, `allowed_host` (optional; defaults to the base_url host, navigation outside it is blocked), `credentials_env` (env var *names*, never values), and a plain-English `mission`. The mission is the whole brief — the more specific it is, the better the report.
 
+An optional top-level `linear:` block turns on issue filing (see below). Any project can
+override it with a `linear:` of its own — a monorepo files each app's bugs to its own team.
+
 lisa finds it by walking up from the current directory to the repo root, then falling back to `~/.config/lisa/config.yaml`. State and artifacts anchor to wherever the config was found — never to your current directory. `.env` is read from that same directory. Run `lisa where` to see what resolved.
 
 | Env var | Default | Purpose |
@@ -317,11 +324,43 @@ lisa finds it by walking up from the current directory to the repo root, then fa
 | `LISA_NO_BANNER` | — | suppress the wordmark |
 | `LISA_NO_UPDATE_CHECK` | — | no update nudge, no "what changed" summary, no background check |
 | `ANTHROPIC_API_KEY` | — | required for `lisa run`, CI, and `oneshot` mode. **Not needed for a native harness.** |
+| `LINEAR_API_KEY` | — | Linear personal API key. Only read when the config has a `linear:` block; the name is configurable via `api_key_env`. |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | — | don't lazily download Chromium; fail instead if it's missing |
 
 `LISA_MODEL` and `LISA_MAX_TURNS` doing nothing in native mode surprises people, so it's
 worth saying plainly: in native mode there is no lisa agent loop to configure. Your
 harness's model is the model, and its own turn limits are the budget.
+
+### Filing to Linear
+
+A report is ephemeral. A bug nobody fixes in the same session evaporates — no ticket, no
+owner, no state. Add a `linear:` block and every **new** bug becomes an issue instead:
+
+```yaml
+linear:
+  api_key_env: LINEAR_API_KEY   # a NAME, never the key — same rule as credentials_env
+  team: ENG                     # team key or UUID
+  project: QA Bugs              # optional
+  labels: [qa-agent]            # optional; must already exist on the team
+```
+
+Then put the key in `.env` and `lisa doctor` will tell you whether it resolves.
+
+The interesting half is what happens on the **second** sighting. lisa runs on a cron, so a
+bug that takes a week to fix is found five times — which without care is five identical
+issues. lisa records which fingerprint became which issue in
+`.lisa/state/<project>.linear.json`, so a re-sighting comments *"still present as of …"* on
+the issue it already has. The CI job caches that directory alongside the seen-bug state, so
+cron runs comment rather than duplicate. `lisa reset <project>` clears both — that's what
+makes it mean "re-report everything".
+
+Filing is opt-in twice over: no `linear:` block and no key both mean nothing is ever filed,
+and `lisa run --no-linear` skips it for one run. One run files at most 10 issues; a run that
+finds forty bugs is a broken deploy, not forty tickets, and the rest file on the next run.
+
+Inside a harness, the default is the other way around — `file_to_linear` is false, and the
+agent calls `file_linear_issues` **after** triage with the bugs it isn't fixing itself. The
+ones it just fixed don't need a ticket.
 
 ### Staying current
 
@@ -349,6 +388,7 @@ lisa's own loop or your harness's model is doing the driving:
 - Credentials are typed by lisa from a role name, never handed to the model — and lisa's own credential values are scrubbed out of every tool result, so an app that reflects one back can't leak it either.
 - Unset credential env vars are reported as such, so a missing secret produces "blocked (missing credentials)" rather than a bogus "login is broken" bug.
 - A failing Slack webhook warns and is recorded as `slack_error` on the report. It never fails the run, changes the exit code, or hides the findings — the report is written first, and the seen-bug state only advances once it is on disk.
+- The same holds for Linear: a failure is recorded as `linear_error`, never fails the run, and never loses the issues that *did* get filed. A bug that couldn't be filed is picked up by the next run — the issue map, not the new/known split, decides what already has a ticket.
 
 Destructive actions are forbidden by instruction rather than by code — the oneshot system
 prompt and the native session briefing carry the same rules. Reinforce them per-mission

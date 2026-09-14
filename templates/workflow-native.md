@@ -8,6 +8,7 @@ browser, the mission, the credentials, and the report pipeline; the QA judgement
 | `qa_navigate` `qa_click` `qa_fill` `qa_read_page` `qa_screenshot` `qa_wait` | drive the page |
 | `qa_submit_report` | file the report, close the browser — always last |
 | `qa_end_session` | abandon a session without a report |
+| `file_linear_issues` | file bugs from the last report into Linear, after triage |
 | `get_last_qa_report` `reset_qa_state` | previous results, dedupe state |
 
 No API key is involved: you are the QA engineer, using the browser lisa opened.
@@ -42,7 +43,8 @@ No API key is involved: you are the QA engineer, using the browser lisa opened.
 `qa_submit_report` takes a `summary`, the `coverage` you actually tested, and a `bugs` array.
 Severity: **critical** = blocks a core flow; **major** = feature broken or data wrong;
 **minor** = cosmetic/UX. Repro steps must be concrete enough for an engineer to follow
-without watching you do it. Set `post_to_slack: true` only if the user asked to notify the team.
+without watching you do it. Set `post_to_slack: true` only if the user asked to notify the team,
+and leave `file_to_linear` false — file after triage, not before (below).
 
 ## Fixing bugs
 
@@ -51,6 +53,17 @@ For each new bug the user wants fixed:
 - Use the `repro_steps`, `evidence` (console errors, failed request URLs, screenshot paths under `{{artifacts}}`), and `page` to locate the relevant code in this repo. Read the screenshot if one exists.
 - Fix it, then run the project's existing tests and linters.
 - Do NOT mark a bug fixed based on reading code alone.
+
+## Filing what you're not fixing
+
+Bugs you fix in this session don't need a ticket. Bugs you're leaving do — otherwise they
+exist only in a report nobody will open again.
+
+- After triage, call `file_linear_issues` with `only` set to the titles you are NOT fixing.
+- A bug that already has an issue gets a "still present" comment, not a duplicate — so
+  re-running QA on an unfixed bug is safe.
+- If the tool reports Linear isn't configured, say so once and move on. Don't edit
+  `lisa.config.yaml` to add a `linear:` block unless the user asks for it.
 
 ## Re-verifying
 
@@ -69,5 +82,6 @@ file yourself.
 
 ## Guardrails
 
-- Don't call `reset_qa_state` unless the user explicitly wants old bugs re-reported.
+- Don't call `reset_qa_state` unless the user explicitly wants old bugs re-reported — it also
+  forgets which bugs already have Linear issues, so the next run files them again.
 - `LISA_MODEL` and `LISA_MAX_TURNS` do nothing here — you are the model, and your own limits govern.

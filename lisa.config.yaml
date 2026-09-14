@@ -1,6 +1,18 @@
 # One entry per project the QA agent should cover.
 # Credentials are never stored here — only the names of env vars that hold them.
 
+# Optional. With this block, every NEW bug becomes a Linear issue and every re-sighting
+# comments on the issue it already has. Without it, nothing is ever filed.
+# linear:
+#   api_key_env: LINEAR_API_KEY   # a NAME, never the key itself — put the value in .env
+#   team: ENG                     # team key or UUID
+#   project: QA Bugs              # optional
+#   labels: [qa-agent]            # optional; must already exist on the team
+#   severity_priority:            # optional — Linear's scale: 1 urgent … 4 low
+#     critical: 1
+#     major: 2
+#     minor: 4
+
 projects:
   - name: acme-dashboard
     base_url: https://staging.dashboard.internal.example.com

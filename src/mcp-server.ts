@@ -35,6 +35,7 @@ import { z } from "zod";
 import {
   PRIMITIVES,
   SAFETY_RULES,
+  fileReportToLinear,
   finishReport,
   loadLastReport,
   resetState,
@@ -91,8 +92,9 @@ const fail = (e: unknown) => ({ content: [{ type: "text" as const, text: `Error:
  * whoever is watching the server. Neither replaces the other: the agent may never look, and
  * the operator can't see the tool result.
  */
-function warnSlack(project: string, report: Report): void {
+function warnSinks(project: string, report: Report): void {
   if (report.slack_error) console.error(`[lisa] ${project}: Slack notification failed — ${report.slack_error} (the report was still filed)`);
+  if (report.linear_error) console.error(`[lisa] ${project}: Linear filing failed — ${report.linear_error} (the report was still filed)`);
 }
 
 const server = new McpServer({ name: "lisa", version });
@@ -145,6 +147,36 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "file_linear_issues",
+  {
+    description:
+      "File bugs from the last QA report into Linear as issues. Use this AFTER triage, for the bugs you are not going " +
+      "to fix yourself right now — the ones you just fixed don't need a ticket. Pass `only` with the exact bug titles " +
+      "to file a subset; omit it to file every new bug from the last report. A bug that already has an issue gets a " +
+      "\"still present\" comment instead of a duplicate. Requires a linear: block in lisa's config and its API key.",
+    inputSchema: {
+      project: z.string().describe("Project name from list_qa_projects"),
+      only: z.array(z.string()).optional().describe("Exact bug titles from the last report. Omit to file all new bugs."),
+    },
+  },
+  async ({ project, only }) => {
+    try {
+      const c = ctx();
+      const p = findProject(c, project);
+      const report = loadLastReport(c, project);
+      if (!report) return text(`No report yet for ${project}. Run QA first.`);
+      const updated = await fileReportToLinear(p, c, report, only);
+      const filed = updated.linear_issues ?? [];
+      console.error(`[lisa] ${project}: filed ${filed.filter((f) => f.action === "created").length} Linear issue(s)`);
+      warnSinks(project, updated);
+      return json({ linear_issues: filed, linear_error: updated.linear_error });
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
 // ---------- oneshot: lisa's own agent loop ----------
 
 if (TOOLS === "oneshot" || TOOLS === "both") {
@@ -159,6 +191,10 @@ if (TOOLS === "oneshot" || TOOLS === "both") {
       inputSchema: {
         project: z.string().describe("Project name from list_qa_projects"),
         post_to_slack: z.boolean().default(false).describe("Post new bugs to the Slack QA channel"),
+        file_to_linear: z.boolean().default(false).describe(
+          "File every new bug as a Linear issue immediately. Leave false when you are about to triage — " +
+            "use file_linear_issues afterwards for the ones you aren't fixing.",
+        ),
         mission_override: z.string().optional().describe(
           "Replace the configured mission for this run. Use it whenever the user asked for something narrower than " +
             "the configured brief — one flow (\"test matter creation\"), a recent change, or re-verifying a fix. " +
@@ -166,7 +202,7 @@ if (TOOLS === "oneshot" || TOOLS === "both") {
         ),
       },
     },
-    async ({ project, post_to_slack, mission_override }) => {
+    async ({ project, post_to_slack, file_to_linear, mission_override }) => {
       try {
         const c = ctx();
         const p = findProject(c, project);
@@ -174,10 +210,11 @@ if (TOOLS === "oneshot" || TOOLS === "both") {
         const log: string[] = [];
         const report = await runProject(p, c, {
           slack: post_to_slack,
+          linear: file_to_linear,
           onEvent: (e) => { if (e.type === "tool_call") log.push(`${e.name} ${JSON.stringify(e.args).slice(0, 120)}`); },
         });
         console.error(`[lisa] ${project}: ${report.new_bugs?.length ?? 0} new, ${report.known_bugs?.length ?? 0} known`);
-        warnSlack(project, report);
+        warnSinks(project, report);
         return json({ ...report, action_log: log });
       } catch (e) {
         return fail(e);
@@ -328,9 +365,13 @@ if (TOOLS === "native" || TOOLS === "both") {
         coverage: z.array(z.string()).describe("Flows/pages actually tested"),
         bugs: z.array(BugSchema).describe("Every issue found. Empty array if the app behaved."),
         post_to_slack: z.boolean().default(false).describe("Post new bugs to the Slack QA channel"),
+        file_to_linear: z.boolean().default(false).describe(
+          "File every new bug as a Linear issue immediately. Leave false when you are about to triage — " +
+            "use file_linear_issues afterwards for the ones you aren't fixing.",
+        ),
       },
     },
-    async ({ project, summary, coverage, bugs, post_to_slack }) => {
+    async ({ project, summary, coverage, bugs, post_to_slack, file_to_linear }) => {
       try {
         // Snapshot the session's own project/ctx (not a re-resolve) and the screenshots the
         // browser actually wrote, then hand the rest to the same tail `run_qa` uses.
@@ -351,10 +392,10 @@ if (TOOLS === "native" || TOOLS === "both") {
           draft = { report: { summary, coverage, bugs: bugs as Bug[] }, project: findProject(c, project), ctx: c };
           console.error(`[lisa] ${project}: no live session at submit; filing the report anyway`);
         }
-        const finished = await finishReport(draft.project, draft.ctx, draft.report, { slack: post_to_slack });
+        const finished = await finishReport(draft.project, draft.ctx, draft.report, { slack: post_to_slack, linear: file_to_linear });
         await sessions.close(project, "was closed when you submitted its report.");
         console.error(`[lisa] ${project}: ${finished.new_bugs?.length ?? 0} new, ${finished.known_bugs?.length ?? 0} known (native)`);
-        warnSlack(project, finished);
+        warnSinks(project, finished);
         return json(finished);
       } catch (e) {
         return fail(e);

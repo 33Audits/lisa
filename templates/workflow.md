@@ -1,4 +1,4 @@
-You have MCP tools from the `lisa` server: `list_qa_projects`, `run_qa`, `get_last_qa_report`, `reset_qa_state`.
+You have MCP tools from the `lisa` server: `list_qa_projects`, `run_qa`, `get_last_qa_report`, `file_linear_issues`, `reset_qa_state`.
 
 ## Running QA
 
@@ -16,6 +16,19 @@ For each new bug the user wants fixed:
 - Use the `repro_steps`, `evidence` (console errors, failed request URLs, screenshot paths under `{{artifacts}}`), and `page` to locate the relevant code in this repo. Read the screenshot if one exists.
 - Fix it, then run the project's existing tests and linters.
 - Do NOT mark a bug fixed based on reading code alone.
+
+## Filing what you're not fixing
+
+Bugs you fix in this session don't need a ticket. Bugs you're leaving do — otherwise they
+exist only in a report nobody will open again.
+
+- After triage, call `file_linear_issues` with `only` set to the titles you are NOT fixing.
+- Leave `file_to_linear` false on `run_qa` unless the user asked to file everything up front.
+  Filing before triage tickets the bugs you're about to close yourself.
+- A bug that already has an issue gets a "still present" comment, not a duplicate — so
+  re-running QA on an unfixed bug is safe.
+- If the tool reports Linear isn't configured, say so once and move on. Don't edit
+  `lisa.config.yaml` to add a `linear:` block unless the user asks for it.
 
 ## Re-verifying
 
@@ -35,4 +48,5 @@ file yourself.
 
 - QA only ever runs against staging with dummy credentials. Never point it at production.
 - Only set `post_to_slack: true` if the user asks to notify the team.
-- Don't call `reset_qa_state` unless the user explicitly wants old bugs re-reported.
+- Don't call `reset_qa_state` unless the user explicitly wants old bugs re-reported — it also
+  forgets which bugs already have Linear issues, so the next run files them again.

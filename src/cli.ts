@@ -100,6 +100,12 @@ function renderReport(r: Report): void {
   show("New bugs", r.new_bugs ?? r.bugs);
   show("Known bugs (still present)", r.known_bugs);
   if (!r.bugs.length) console.log("\n" + pc.green("No bugs found ✅"));
+  if (r.linear_issues?.length) {
+    console.log("\n" + pc.bold("Linear"));
+    for (const i of r.linear_issues) {
+      console.log(`  ${pc.blue("✎")} ${pc.bold(i.identifier)} ${pc.dim(i.action === "created" ? "filed" : "commented")}  ${pc.dim(i.url)}`);
+    }
+  }
   if (r.screenshots?.length) console.log("\n" + pc.dim(`Screenshots: ${r.screenshots.join(", ")}`));
 }
 
@@ -217,6 +223,7 @@ withConfig(program.command("run").description("run a QA session"))
   .option("--headed", "show the browser window while the agent works")
   .option("--slow-mo <ms>", "delay between browser actions when --headed", "250")
   .option("--no-slack", "don't post to Slack, just print")
+  .option("--no-linear", "don't file new bugs as Linear issues")
   .option("--json", "print the raw report JSON at the end")
   .option("-m, --mission <text>", "replace the configured mission for this run (e.g. to re-verify one fix)")
   .action(async (name: string | undefined, o) => {
@@ -235,7 +242,7 @@ withConfig(program.command("run").description("run a QA session"))
     }
     for (const p of projects) {
       console.log("\n" + bannerLine(`→ ${p.name}`) + pc.dim(`  ${p.base_url}`));
-      const report = await runProject(p, ctx, { headed: o.headed, slowMo: Number(o.slowMo), slack: o.slack, onEvent: renderEvent });
+      const report = await runProject(p, ctx, { headed: o.headed, slowMo: Number(o.slowMo), slack: o.slack, linear: o.linear, onEvent: renderEvent });
       renderReport(report);
       if (o.json) console.log("\n" + JSON.stringify(report, null, 2));
       // A webhook failure is loud but never fatal: the report is already on disk and the
@@ -245,6 +252,13 @@ withConfig(program.command("run").description("run a QA session"))
         console.error(pc.dim(`  The findings above were still saved — see \`lisa report ${p.name}\`. They count as seen, so Slack won't get them on the next run.`));
       } else if (o.slack && process.env.SLACK_WEBHOOK_URL) {
         console.log(pc.dim("\nPosted to Slack."));
+      }
+      // Same contract for the tracker. The one thing worth spelling out is that a bug which
+      // failed to file still counts as seen, so it won't come back as new next run — the
+      // issue has to be filed by hand or the state reset.
+      if (report.linear_error) {
+        console.error(pc.yellow(`\n⚠ Linear filing failed: ${report.linear_error}`));
+        console.error(pc.dim(`  The findings above were still saved — see \`lisa report ${p.name}\`. Anything not filed counts as seen; \`lisa reset ${p.name}\` re-files it.`));
       }
       // exit 2 on new criticals so CI can gate on it
       if (report.new_bugs?.some((b) => b.severity === "critical")) process.exitCode = 2;

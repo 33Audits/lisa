@@ -15,18 +15,19 @@ import type { MessageParam, Tool, ToolUseBlock } from "@anthropic-ai/sdk/resourc
 import { chromium, type Browser as PwBrowser, type Page, type ConsoleMessage, type Request, type Response } from "playwright";
 import { ensureChromium } from "./browser.js";
 import { ensureDir, type RuntimeContext } from "./paths.js";
-import { resolveCredentials, type ProjectConfig } from "./config.js";
+import { resolveCredentials, resolveLinear, type ProjectConfig, type Severity } from "./config.js";
+import { clearIssueMap, fileToLinear, type FiledIssue } from "./linear.js";
 
 export const MODEL = process.env.LISA_MODEL ?? "claude-sonnet-5";
 export const MAX_TURNS = Number(process.env.LISA_MAX_TURNS ?? "60");
 
-export type { ProjectConfig };
+export type { ProjectConfig, Severity };
 
 // ---------- Types ----------
 
 export interface Bug {
   title: string;
-  severity: "critical" | "major" | "minor";
+  severity: Severity;
   page: string;
   repro_steps: string[];
   expected: string;
@@ -50,6 +51,13 @@ export interface Report {
    * find out that it didn't happen; everything else can keep ignoring the field.
    */
   slack_error?: string;
+  /**
+   * What this run did in Linear — one entry per issue created or commented on. Absent when
+   * Linear isn't configured, the key isn't set, or filing was opted out of.
+   */
+  linear_issues?: FiledIssue[];
+  /** Same contract as `slack_error`: present only when filing was attempted and something went wrong. */
+  linear_error?: string;
 }
 
 export type AgentEvent =
@@ -439,7 +447,7 @@ export async function runAgent(project: ProjectConfig, ctx: RuntimeContext, opts
 
 // ---------- Dedupe ----------
 
-function bugFingerprint(projectName: string, bug: Bug): string {
+export function bugFingerprint(projectName: string, bug: Bug): string {
   return crypto.createHash("sha256").update(`${projectName}|${bug.page}|${bug.title.toLowerCase().trim()}`).digest("hex").slice(0, 16);
 }
 
@@ -463,16 +471,21 @@ export function classifyBugs(
   ctx: RuntimeContext,
   projectName: string,
   bugs: Bug[],
-): { fresh: Bug[]; known: Bug[]; fingerprints: string[] } {
+): { fresh: Bug[]; known: Bug[]; fingerprints: string[]; tagged: { bug: Bug; fingerprint: string; isNew: boolean }[] } {
   const stateFile = stateFilePath(ctx, projectName);
   const seen: Set<string> = fs.existsSync(stateFile) ? new Set(JSON.parse(fs.readFileSync(stateFile, "utf-8"))) : new Set();
   const fresh: Bug[] = [], known: Bug[] = [];
+  // `tagged` keeps each bug next to the fingerprint it was classified by, so Linear filing
+  // doesn't have to recompute the hash and risk computing it differently.
+  const tagged: { bug: Bug; fingerprint: string; isNew: boolean }[] = [];
   for (const bug of bugs) {
     const fp = bugFingerprint(projectName, bug);
-    (seen.has(fp) ? known : fresh).push(bug);
+    const isNew = !seen.has(fp);
+    (isNew ? fresh : known).push(bug);
+    tagged.push({ bug, fingerprint: fp, isNew });
     seen.add(fp);
   }
-  return { fresh, known, fingerprints: [...seen].sort() };
+  return { fresh, known, fingerprints: [...seen].sort(), tagged };
 }
 
 /** Persist the classification. Call only after the report those bugs live in is on disk. */
@@ -484,6 +497,10 @@ export function commitSeen(ctx: RuntimeContext, projectName: string, fingerprint
 export function resetState(ctx: RuntimeContext, projectName: string): void {
   const f = stateFilePath(ctx, projectName);
   if (fs.existsSync(f)) fs.unlinkSync(f);
+  // The fingerprint→issue map goes with it. `reset` means "re-report everything"; leaving the
+  // map behind would make the next run comment on the old issues instead of filing fresh ones
+  // — the exact opposite of what was asked for.
+  clearIssueMap(ctx, projectName);
 }
 
 // ---------- Slack ----------
@@ -532,17 +549,18 @@ export async function postToSlack(project: ProjectConfig, report: Report, freshB
  * every bug seen with no report to show for it — findings weren't merely unsaved, they were
  * suppressed on every later run until someone ran `lisa reset`.
  *
- * Slack sits between the stamping and the write so its outcome lands *in* the artifact
- * rather than needing a second write to record it. It cannot abort anything: a run that
- * drove the browser and found bugs succeeded, whatever a webhook said about it afterwards.
+ * Slack and Linear sit between the stamping and the write so their outcomes land *in* the
+ * artifact rather than needing a second write to record them. Neither can abort anything: a
+ * run that drove the browser and found bugs succeeded, whatever a webhook or a tracker said
+ * about it afterwards.
  */
 export async function finishReport(
   project: ProjectConfig,
   ctx: RuntimeContext,
   report: Report,
-  opts: { slack?: boolean } = {},
+  opts: { slack?: boolean; linear?: boolean } = {},
 ): Promise<Report> {
-  const { fresh, known, fingerprints } = classifyBugs(ctx, project.name, report.bugs ?? []);
+  const { fresh, known, fingerprints, tagged } = classifyBugs(ctx, project.name, report.bugs ?? []);
   report.project = project.name;
   report.ran_at = new Date().toISOString();
   report.new_bugs = fresh;
@@ -559,16 +577,79 @@ export async function finishReport(
     }
   }
 
-  ensureDir(ctx.artifactsDir);
-  fs.writeFileSync(reportPath(ctx, project.name), JSON.stringify(report, null, 2));
+  // Opt-in twice over: there has to be a `linear:` block *and* a key for the env var it names.
+  // Filing into somebody's tracker is not a thing to start doing by default.
+  const linear = opts.linear === false ? null : resolveLinear(project);
+  if (linear && report.bugs?.length) {
+    const { filed, error } = await fileToLinear(
+      linear.key,
+      linear.settings,
+      ctx,
+      project.name,
+      report,
+      tagged.filter((t) => t.isNew),
+      tagged.filter((t) => !t.isNew),
+    );
+    if (filed.length) report.linear_issues = filed;
+    if (error) report.linear_error = error;
+  }
+
+  saveReport(ctx, project.name, report);
   commitSeen(ctx, project.name, fingerprints);
+  return report;
+}
+
+/** Overwrite a project's stored report. Exported so a later filing pass can record itself. */
+export function saveReport(ctx: RuntimeContext, projectName: string, report: Report): void {
+  ensureDir(ctx.artifactsDir);
+  fs.writeFileSync(reportPath(ctx, projectName), JSON.stringify(report, null, 2));
+}
+
+/**
+ * File an already-finished report's bugs into Linear, optionally narrowed to specific titles.
+ *
+ * This is the triage path, and it exists because filing at report time is the wrong moment for
+ * an agent that is about to fix half of what it found.
+ *
+ * It reads the stored report rather than re-classifying. The seen state has already advanced
+ * by now, so a fresh classification would say "known" about every bug and tell the caller
+ * nothing; `new_bugs` is the decision the run actually made, and the titles in `only` are the
+ * ones the caller just read off it.
+ *
+ * The updated report is written back so `lisa report` shows the issues too.
+ */
+export async function fileReportToLinear(
+  project: ProjectConfig,
+  ctx: RuntimeContext,
+  report: Report,
+  only?: string[],
+): Promise<Report> {
+  const linear = resolveLinear(project);
+  if (!linear) {
+    throw new Error(
+      project.linear
+        ? `${project.linear.api_key_env} is not set, so lisa can't talk to Linear. Put it in the .env beside your config.`
+        : `No linear: block in the config for "${project.name}". Add one with a team key to file issues.`,
+    );
+  }
+  const wanted = only?.length ? new Set(only.map((t) => t.toLowerCase().trim())) : null;
+  const candidates = (report.new_bugs ?? report.bugs ?? []).filter((b) => !wanted || wanted.has(b.title.toLowerCase().trim()));
+  if (wanted && !candidates.length) {
+    throw new Error(`None of those titles are in the last report for "${project.name}". Filed nothing.`);
+  }
+  const tagged = candidates.map((bug) => ({ bug, fingerprint: bugFingerprint(project.name, bug) }));
+
+  const { filed, error } = await fileToLinear(linear.key, linear.settings, ctx, project.name, report, tagged, []);
+  if (filed.length) report.linear_issues = [...(report.linear_issues ?? []), ...filed];
+  report.linear_error = error;
+  saveReport(ctx, project.name, report);
   return report;
 }
 
 export async function runProject(
   project: ProjectConfig,
   ctx: RuntimeContext,
-  opts: RunOptions & { slack?: boolean } = {},
+  opts: RunOptions & { slack?: boolean; linear?: boolean } = {},
 ): Promise<Report> {
   return finishReport(project, ctx, await runAgent(project, ctx, opts), opts);
 }

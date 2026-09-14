@@ -31,7 +31,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Persist the seen-bugs state between runs so Slack only gets NEW bugs
+      # Persist the seen-bugs state between runs so Slack only gets NEW bugs — and so the
+      # fingerprint→Linear-issue map survives, which is what stops a bug that takes a week to
+      # fix from becoming five identical issues.
       - name: Restore dedupe state
         uses: actions/cache@v4
         with:
@@ -43,6 +45,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}   # only used if lisa.config.yaml has a linear: block
           ACME_QA_USERNAME: ${{ secrets.ACME_QA_USERNAME }}
           ACME_QA_PASSWORD: ${{ secrets.ACME_QA_PASSWORD }}
           SHOP_QA_USERNAME: ${{ secrets.SHOP_QA_USERNAME }}
