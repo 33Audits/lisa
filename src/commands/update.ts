@@ -22,6 +22,17 @@ import pc from "picocolors";
 import { type RuntimeContext } from "../paths.js";
 import { packageRoot } from "../templates.js";
 import {
+  changelogPath,
+  checkoutRoot,
+  cmpVersion,
+  hasActions,
+  readChangelog,
+  readState,
+  releasesBetween,
+  renderReleases,
+  writeState,
+} from "../update-check.js";
+import {
   HARNESSES,
   applyChanges,
   changeKind,
@@ -41,10 +52,41 @@ export interface UpdateOptions {
   noBuild?: boolean;
 }
 
-/** Is the lisa package a git working tree we can pull, or an installed artifact? */
-export function checkoutRoot(): string | null {
-  const root = packageRoot();
-  return fs.existsSync(path.join(root, ".git")) ? root : null;
+export { checkoutRoot };
+
+/**
+ * The version sitting on disk *now*. Read fresh rather than from the constant this process
+ * started with: after `git pull`, that constant is the version we upgraded away from.
+ *
+ * Read through `fs`, not `require`: the module cache would hand back the pre-pull copy and
+ * silently make every update look like a no-op.
+ */
+function versionOnDisk(): string | null {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot(), "package.json"), "utf-8")) as { version?: string };
+    return typeof pkg.version === "string" ? pkg.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the pull brought in, and what the user now has to do about it.
+ *
+ * Printed here rather than left to the next invocation's notice because this is the moment
+ * the user is watching: they asked for the update and are reading the output. The notice
+ * path stays as the backstop for the `npm i -g` upgrade route, which never runs this code.
+ */
+function reportChangelogDelta(from: string, to: string): void {
+  if (cmpVersion(to, from) <= 0) return;
+  const delta = releasesBetween(readChangelog(), from, to);
+  console.log("\n" + pc.bold(`lisa ${from} → ${to}`));
+  if (!delta.length) {
+    console.log(pc.dim(`  No changelog entry for this version — see ${changelogPath()}`));
+    return;
+  }
+  console.log(renderReleases(delta, { restOfNotes: 8 }).join("\n"));
+  if (!hasActions(delta)) console.log(pc.dim("  Nothing to do beyond the wiring refresh below."));
 }
 
 function run(cmd: string, args: string[], cwd: string): boolean {
@@ -108,6 +150,8 @@ function planAll(ctx: RuntimeContext): Row[] {
 export async function updateCommand(opts: UpdateOptions, ctx: RuntimeContext): Promise<void> {
   const root = checkoutRoot();
 
+  const before = versionOnDisk();
+
   if (opts.noBuild) {
     console.log(pc.dim("Skipping the rebuild (--no-build).\n"));
   } else if (root) {
@@ -115,6 +159,12 @@ export async function updateCommand(opts: UpdateOptions, ctx: RuntimeContext): P
       process.exitCode = 1;
       return;
     }
+    const after = versionOnDisk();
+    // --check runs nothing, so `after` is still `before` and this is a no-op there.
+    if (before && after) reportChangelogDelta(before, after);
+    // The delta has now been reported, so don't let the next command report it again, and
+    // drop the pending-update flag this run just resolved.
+    if (after && !opts.check) writeState({ ...readState(), last_seen_version: after, behind: 0, latest: after });
     console.log("");
   } else {
     console.log(

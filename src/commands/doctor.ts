@@ -14,6 +14,7 @@ import { loadConfig, resolveCredentials } from "../config.js";
 import { loadEnvFile } from "../env.js";
 import { chromiumInstalled } from "../browser.js";
 import { HARNESSES, wiredMode, type HarnessStatus, type InstallScope, type ToolsMode } from "../harness/index.js";
+import { installKind, pendingLine, readState } from "../update-check.js";
 
 type Level = "ok" | "warn" | "fail";
 
@@ -56,7 +57,19 @@ function harnessRows(ctx: RuntimeContext): HarnessRow[] {
   });
 }
 
-export async function doctorCommand(configFlag?: string): Promise<void> {
+/**
+ * Whether this install is behind, straight from the cache the notice path fills — doctor is
+ * a report, so it never goes to the network and never makes the user wait.
+ */
+function versionCheck(current: string): void {
+  const state = readState();
+  const pending = pendingLine(state, current);
+  if (pending) check("warn", pending);
+  else if (!state.checked_at) check("ok", `lisa ${current} (${installKind()} install) — no update check has run yet`);
+  else check("ok", `lisa ${current} is up to date` + pc.dim(`  (checked ${state.checked_at})`));
+}
+
+export async function doctorCommand(configFlag?: string, version = "unknown"): Promise<void> {
   let hardFailure = false;
   const fail = (text: string) => {
     check("fail", text);
@@ -86,6 +99,7 @@ export async function doctorCommand(configFlag?: string): Promise<void> {
   const nativeWired = rows.some((r) => r.status === "wired" && r.mode === "native");
 
   console.log(pc.bold("Environment"));
+  versionCheck(version);
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
     check("ok", "ANTHROPIC_API_KEY is set");
   } else if (nativeWired) {

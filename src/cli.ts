@@ -26,8 +26,16 @@ import { installCommand, listHarnesses, suggestInstall } from "./commands/instal
 import { doctorCommand } from "./commands/doctor.js";
 import { updateCommand } from "./commands/update.js";
 import { harnessIds, parseInstallScope, parseToolsMode, TOOLS_MODES } from "./harness/index.js";
+import { refreshUpdateCheck, REFRESH_ARGV, updateNotice } from "./update-check.js";
 
-const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+const { version, name: packageName } = createRequire(import.meta.url)("../package.json") as { version: string; name: string };
+
+// The detached child `updateNotice` spawns. Handled before commander sees argv so it stays
+// out of the help output and can never collide with a real command name.
+if (process.argv[2] === REFRESH_ARGV) {
+  await refreshUpdateCheck(packageName);
+  process.exit(0);
+}
 
 /**
  * Resolve the context and load the credentials sitting beside it. `.env` is read from
@@ -99,7 +107,13 @@ const program = new Command()
   .name("lisa")
   .description("Autonomous QA agent: Claude + Playwright")
   .version(version)
-  .showHelpAfterError();
+  .showHelpAfterError()
+  // One notice per invocation, before the command's own output: either "you're now on a
+  // newer version, here's what to do" or "a newer one is waiting". `update` is exempt —
+  // it reports its own delta once the new version is actually on disk.
+  .hook("preAction", (_program, command) => {
+    if (command.name() !== "update") updateNotice(version);
+  });
 
 const withConfig = (cmd: Command) => cmd.option("-c, --config <path>", "path to lisa.config.yaml");
 
@@ -264,7 +278,7 @@ withConfig(program.command("where").description("show which config and directori
 });
 
 withConfig(program.command("doctor").description("check the environment: API key, Chromium, config, harness wiring")).action(async (o) => {
-  await doctorCommand(o.config);
+  await doctorCommand(o.config, version);
 });
 
 if (process.argv.length <= 2) {
