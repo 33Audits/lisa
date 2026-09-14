@@ -39,7 +39,8 @@
     "build": "tsc -p . && chmod +x dist/cli.js dist/mcp-server.js",
     "typecheck": "tsc -p . --noEmit",
     "dev": "tsx src/cli.ts",
-    "mcp": "tsx src/mcp-server.ts"
+    "mcp": "tsx src/mcp-server.ts",
+    "setup": "npm install && npm run build && npm link"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",

@@ -11,6 +11,7 @@
 import pc from "picocolors";
 import { describeContext, resolveContext, type RuntimeContext } from "../paths.js";
 import { loadConfig, resolveCredentials } from "../config.js";
+import { loadEnvFile } from "../env.js";
 import { chromiumInstalled } from "../browser.js";
 import { HARNESSES, installTarget, statusOf, type HarnessStatus } from "../harness/index.js";
 
@@ -48,13 +49,18 @@ export async function doctorCommand(configFlag?: string): Promise<void> {
     configError = e;
   }
 
+  // Same as every other command's `.env` handling: loaded from the config's directory,
+  // never the cwd, and only fills in what process.env doesn't already have. Without this,
+  // a key correctly sitting in `.env` reads here as "not set".
+  if (ctx) loadEnvFile(ctx.root);
+
   if (ctx) {
     for (const { label, value } of describeContext(ctx)) console.log(`  ${pc.dim(label.padEnd(10))} ${value}`);
     console.log("");
   }
 
   console.log(pc.bold("Environment"));
-  if (process.env.ANTHROPIC_API_KEY) check("ok", "ANTHROPIC_API_KEY is set");
+  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) check("ok", "ANTHROPIC_API_KEY is set");
   else fail("ANTHROPIC_API_KEY is not set — the agent loop calls the Claude API directly");
 
   if (chromiumInstalled()) check("ok", "Chromium is installed");

@@ -112,6 +112,7 @@ withConfig(program.command("init").description("scaffold a lisa.config.yaml for 
   .option("--password-env <var>", "env var holding the test password")
   .option("--mission <kind>", `starter mission: ${MISSION_KEYS.join(" | ")}`)
   .option("--non-production", "assert the URL is not production (required by --yes on a prod-looking host)")
+  .option("--harness <id|none>", `wire into an agent harness after writing the config (${harnessIds().join(" | ")}), or "none" for standalone/CI — skips the interactive question either way`)
   .action(async (o) => {
     if (!o.yes) printBanner(version);
     await initCommand({
@@ -127,6 +128,7 @@ withConfig(program.command("init").description("scaffold a lisa.config.yaml for 
       passwordEnv: o.passwordEnv,
       mission: o.mission as MissionKey | undefined,
       nonProduction: o.nonProduction,
+      harness: o.harness,
     });
   });
 

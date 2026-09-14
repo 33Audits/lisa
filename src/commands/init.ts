@@ -15,8 +15,10 @@ import path from "node:path";
 import yaml from "js-yaml";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
-import { findProjectConfig, globalConfigPath, initTargetPath, UserError } from "../paths.js";
+import { contextFor, findProjectConfig, globalConfigPath, initTargetPath, UserError } from "../paths.js";
 import { readTemplate, render } from "../templates.js";
+import { HARNESSES, detectAll, detectTarget, findHarness } from "../harness/index.js";
+import { installCommand } from "./install.js";
 
 export interface InitOptions {
   config?: string;
@@ -31,6 +33,52 @@ export interface InitOptions {
   passwordEnv?: string;
   mission?: MissionKey;
   nonProduction?: boolean;
+  /** A harness id, or "none" for standalone/CI. Skips the interactive question either way. */
+  harness?: string;
+}
+
+/**
+ * `opts.harness` resolved to a harness id, `null` for standalone/CI, or `undefined` when
+ * nothing was passed and the interactive prompt should decide. Separate from the prompt
+ * so `--harness <id>` and `--harness none` give scripted setups the same power as a human
+ * answering the question.
+ */
+function resolveHarnessFlag(raw: string | undefined): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw.trim().toLowerCase() === "none") return null;
+  return findHarness(raw).id;
+}
+
+/**
+ * The first question `lisa init` asks: are you wiring this into a coding agent, or
+ * running it yourself? Answering with a harness changes what happens after the config
+ * is written — `initCommand` chains straight into `lisa install <harness>` — so someone
+ * who already knows they want Claude Code (or Codex, Cursor, Windsurf) never has to
+ * remember to run a second command.
+ *
+ * Skipped entirely off a TTY: a non-interactive `--yes` run is already the "hosting on a
+ * server / CI" case, so it defaults to standalone unless `--harness` says otherwise.
+ */
+async function pickInitHarness(dir: string): Promise<string | null> {
+  const detected = detectAll(detectTarget(dir));
+  const value = await ask(
+    p.select({
+      message: "How will you run lisa?",
+      options: [
+        ...HARNESSES.map((h) => ({
+          value: h.id,
+          label: h.displayName,
+          hint: detected.find((d) => d.harness.id === h.id)?.result.installed ? "detected here" : undefined,
+        })),
+        {
+          value: "__standalone__",
+          label: "Standalone — terminal, CI, or a server",
+          hint: "you'll run `lisa run` yourself and set ANTHROPIC_API_KEY",
+        },
+      ],
+    }),
+  );
+  return value === "__standalone__" ? null : value;
 }
 
 const MISSIONS = {
@@ -183,6 +231,10 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
   const exists = fs.existsSync(target);
 
   if (interactive) p.intro(pc.bold("lisa init"));
+
+  // ---- how will you run lisa? (asked first — it decides what happens after the write) ----
+  const harnessFlag = resolveHarnessFlag(opts.harness);
+  const harnessChoice = harnessFlag !== undefined ? harnessFlag : interactive ? await pickInitHarness(root) : null;
 
   // ---- existing config: append, overwrite, or bail ----
   let mode: "create" | "append" | "overwrite" = exists ? "append" : "create";
@@ -348,14 +400,21 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
     ...(ignored.length ? [`updated  ${rel(path.join(root, ".gitignore"))}  (+${ignored.join(", ")})`] : []),
   ];
 
-  const next = [
-    ...(Object.values(credentials).length
-      ? [`1. Put the test credentials in ${pc.bold(rel(path.join(root, ".env")))}: ${Object.values(credentials).join(", ")}`]
-      : []),
-    `${Object.values(credentials).length ? "2" : "1"}. Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell).`,
-    `${Object.values(credentials).length ? "3" : "2"}. Sharpen the mission in ${pc.bold(rel(target))} — the more specific it is, the better the report.`,
-    `${Object.values(credentials).length ? "4" : "3"}. Run ${pc.bold(`lisa run ${name}`)}${interactive ? pc.dim("  (add --headed to watch)") : ""}`,
-  ];
+  // The API key step differs slightly when a harness is going to run the MCP server on
+  // your behalf, and the final "go run it" step is redundant once we're about to chain
+  // into `lisa install` — that command prints its own harness-specific next steps.
+  const steps: string[] = [];
+  if (Object.values(credentials).length) {
+    steps.push(`Put the test credentials in ${pc.bold(rel(path.join(root, ".env")))}: ${Object.values(credentials).join(", ")}`);
+  }
+  steps.push(
+    harnessChoice
+      ? `Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell) — the lisa-mcp process ${findHarness(harnessChoice).displayName} spawns needs it too.`
+      : `Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell).`,
+  );
+  steps.push(`Sharpen the mission in ${pc.bold(rel(target))} — the more specific it is, the better the report.`);
+  if (!harnessChoice) steps.push(`Run ${pc.bold(`lisa run ${name}`)}${interactive ? pc.dim("  (add --headed to watch)") : ""}`);
+  const next = steps.map((s, i) => `${i + 1}. ${s}`);
 
   if (interactive) {
     p.note(wrote.join("\n"), "Files");
@@ -364,5 +423,11 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
   } else {
     console.log(wrote.join("\n"));
     console.log(`\nNext:\n${next.join("\n")}`);
+  }
+
+  // ---- chain into `lisa install` when the first question picked a harness ----
+  if (harnessChoice) {
+    const ctx = contextFor(target, opts.global ? "global" : "project");
+    await installCommand({ yes: opts.yes }, ctx, harnessChoice);
   }
 }

@@ -36,6 +36,12 @@ lisa.config.yaml     your projects + missions
 ## Install
 
 ```bash
+npm run setup      # installs deps, builds, and npm links — one command, one time
+```
+
+Or the three steps by hand, if you'd rather skip `npm link` (it puts `lisa` on your PATH globally):
+
+```bash
 npm install                      # deps only — Chromium is not downloaded here
 npm run build                    # → dist/, makes `lisa` and `lisa-mcp` bins
 npm link                         # optional: puts `lisa` on your PATH
@@ -54,10 +60,17 @@ Then, from your app's repo:
 lisa init
 ```
 
-It asks for a project name, a staging URL, whether the app needs a login, and which
-starter mission to begin from — then writes `lisa.config.yaml`, adds the credential
-env vars to `.env.example`, and makes sure `.gitignore` covers `.env` and `.lisa/`.
-Run it again later to add another project.
+The first thing it asks — before anything about the app itself — is **how you're going
+to run lisa**: inside an agent harness (Claude Code, Codex, Cursor, Windsurf), or
+standalone (terminal, CI, a server). Pick a harness and, once the config is written,
+`lisa init` chains straight into `lisa install <harness>` for you — one command instead
+of two. Pick standalone and nothing changes from here: same prompts, same `.env` /
+`ANTHROPIC_API_KEY` instructions as always.
+
+Then it asks for a project name, a staging URL, whether the app needs a login, and
+which starter mission to begin from — then writes `lisa.config.yaml`, adds the
+credential env vars to `.env.example`, and makes sure `.gitignore` covers `.env` and
+`.lisa/`. Run it again later to add another project.
 
 Every prompt is also a flag, so it scripts:
 
@@ -69,9 +82,15 @@ lisa init --yes --url https://staging.acme.com --name acme-dashboard \
 `--yes` refuses a URL that doesn't look like a staging host unless you also pass
 `--non-production`. lisa clicks buttons in a real browser; that gate is deliberate.
 
+A non-interactive (`--yes`) run — the shape a server or a GitHub Actions job would
+use — never sees the harness question at all: there's no coding agent on the other end
+to wire into, so it defaults to standalone unless you pass `--harness <id>` explicitly
+(or `--harness none` to say so on a TTY without being asked).
+
 Other flags: `--global` (write to `~/.config/lisa/config.yaml`), `--force` (replace an
 existing config instead of adding to it), `--name`, `--url`, `--no-login`,
-`--username-env`, `--password-env`, `--mission smoke|auth|minimal`.
+`--username-env`, `--password-env`, `--mission smoke|auth|minimal`,
+`--harness claude-code|codex|cursor|windsurf|generic|none`.
 
 Finally fill in `.env`:
 
@@ -107,7 +126,8 @@ adapter's brief tells a shell-only agent to use.
 
 ## 2. Inside an agent harness
 
-From your app's repo:
+If you already answered "yes, a harness" during `lisa init`, this is done — skip ahead.
+Otherwise, from your app's repo:
 
 ```bash
 lisa install              # pick from a list
