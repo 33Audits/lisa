@@ -285,6 +285,7 @@ lisa's own loop or your harness's model is doing the driving:
 - Page text comes back wrapped in an untrusted-content marker on every read.
 - Credentials are typed by lisa from a role name, never handed to the model — and lisa's own credential values are scrubbed out of every tool result, so an app that reflects one back can't leak it either.
 - Unset credential env vars are reported as such, so a missing secret produces "blocked (missing credentials)" rather than a bogus "login is broken" bug.
+- A failing Slack webhook warns and is recorded as `slack_error` on the report. It never fails the run, changes the exit code, or hides the findings — the report is written first, and the seen-bug state only advances once it is on disk.
 
 Destructive actions are forbidden by instruction rather than by code — the oneshot system
 prompt and the native session briefing carry the same rules. Reinforce them per-mission

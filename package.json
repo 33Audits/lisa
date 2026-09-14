@@ -38,6 +38,7 @@
   "scripts": {
     "build": "tsc -p . && chmod +x dist/cli.js dist/mcp-server.js",
     "typecheck": "tsc -p . --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
     "dev": "tsx src/cli.ts",
     "mcp": "tsx src/mcp-server.ts",
     "setup": "npm install && npm run build && npm link"

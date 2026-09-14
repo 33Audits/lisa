@@ -86,6 +86,15 @@ const text = (body: string) => ({ content: [{ type: "text" as const, text: body 
 const json = (body: unknown) => text(JSON.stringify(body, null, 2));
 const fail = (e: unknown) => ({ content: [{ type: "text" as const, text: `Error: ${(e as Error)?.message ?? String(e)}` }], isError: true });
 
+/**
+ * A failed webhook is on the report (`slack_error`) for the calling agent, and on stderr for
+ * whoever is watching the server. Neither replaces the other: the agent may never look, and
+ * the operator can't see the tool result.
+ */
+function warnSlack(project: string, report: Report): void {
+  if (report.slack_error) console.error(`[lisa] ${project}: Slack notification failed — ${report.slack_error} (the report was still filed)`);
+}
+
 const server = new McpServer({ name: "lisa", version });
 
 /** Description text for a primitive, so the two vocabularies can't disagree about one. */
@@ -164,6 +173,7 @@ if (TOOLS === "oneshot" || TOOLS === "both") {
           onEvent: (e) => { if (e.type === "tool_call") log.push(`${e.name} ${JSON.stringify(e.args).slice(0, 120)}`); },
         });
         console.error(`[lisa] ${project}: ${report.new_bugs?.length ?? 0} new, ${report.known_bugs?.length ?? 0} known`);
+        warnSlack(project, report);
         return json({ ...report, action_log: log });
       } catch (e) {
         return fail(e);
@@ -336,6 +346,7 @@ if (TOOLS === "native" || TOOLS === "both") {
         const finished = await finishReport(draft.project, draft.ctx, draft.report, { slack: post_to_slack });
         await sessions.close(project, "was closed when you submitted its report.");
         console.error(`[lisa] ${project}: ${finished.new_bugs?.length ?? 0} new, ${finished.known_bugs?.length ?? 0} known (native)`);
+        warnSlack(project, finished);
         return json(finished);
       } catch (e) {
         return fail(e);

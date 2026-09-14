@@ -204,7 +204,14 @@ withConfig(program.command("run").description("run a QA session"))
       const report = await runProject(p, ctx, { headed: o.headed, slowMo: Number(o.slowMo), slack: o.slack, onEvent: renderEvent });
       renderReport(report);
       if (o.json) console.log("\n" + JSON.stringify(report, null, 2));
-      if (o.slack && process.env.SLACK_WEBHOOK_URL) console.log(pc.dim("\nPosted to Slack."));
+      // A webhook failure is loud but never fatal: the report is already on disk and the
+      // exit code stays a statement about what QA found, not about who heard about it.
+      if (report.slack_error) {
+        console.error(pc.yellow(`\n⚠ Slack notification failed: ${report.slack_error}`));
+        console.error(pc.dim(`  The findings above were still saved — see \`lisa report ${p.name}\`. They count as seen, so Slack won't get them on the next run.`));
+      } else if (o.slack && process.env.SLACK_WEBHOOK_URL) {
+        console.log(pc.dim("\nPosted to Slack."));
+      }
       // exit 2 on new criticals so CI can gate on it
       if (report.new_bugs?.some((b) => b.severity === "critical")) process.exitCode = 2;
     }

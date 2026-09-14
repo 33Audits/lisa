@@ -44,6 +44,12 @@ export interface Report {
   new_bugs?: Bug[];
   known_bugs?: Bug[];
   screenshots?: string[];
+  /**
+   * Absent unless a *configured* webhook actually failed — not on the happy path, and not
+   * when no webhook is set. An agent that was asked to notify the team can check this to
+   * find out that it didn't happen; everything else can keep ignoring the field.
+   */
+  slack_error?: string;
 }
 
 export type AgentEvent =
@@ -437,9 +443,28 @@ function bugFingerprint(projectName: string, bug: Bug): string {
   return crypto.createHash("sha256").update(`${projectName}|${bug.page}|${bug.title.toLowerCase().trim()}`).digest("hex").slice(0, 16);
 }
 
-export function dedupe(ctx: RuntimeContext, projectName: string, bugs: Bug[]): { fresh: Bug[]; known: Bug[] } {
-  ensureDir(ctx.stateDir);
-  const stateFile = path.join(ctx.stateDir, `${projectName}.json`);
+function stateFilePath(ctx: RuntimeContext, projectName: string): string {
+  return path.join(ctx.stateDir, `${projectName}.json`);
+}
+
+/**
+ * Split this run's bugs against the ones we have already told someone about. Reads only.
+ *
+ * `fingerprints` is what `commitSeen` would persist — the prior state plus this run. The two
+ * halves are separate functions because fusing them is precisely how the ordering bug got
+ * written: dedupe state may only advance once the report it is a record of is durable, and
+ * that constraint is now visible at the call site instead of buried inside one call.
+ *
+ * A bug duplicated *within a single report* still lands in `fresh` the first time and
+ * `known` the second — pre-existing behaviour of the `seen.add` in the loop, deliberately
+ * preserved here.
+ */
+export function classifyBugs(
+  ctx: RuntimeContext,
+  projectName: string,
+  bugs: Bug[],
+): { fresh: Bug[]; known: Bug[]; fingerprints: string[] } {
+  const stateFile = stateFilePath(ctx, projectName);
   const seen: Set<string> = fs.existsSync(stateFile) ? new Set(JSON.parse(fs.readFileSync(stateFile, "utf-8"))) : new Set();
   const fresh: Bug[] = [], known: Bug[] = [];
   for (const bug of bugs) {
@@ -447,12 +472,17 @@ export function dedupe(ctx: RuntimeContext, projectName: string, bugs: Bug[]): {
     (seen.has(fp) ? known : fresh).push(bug);
     seen.add(fp);
   }
-  fs.writeFileSync(stateFile, JSON.stringify([...seen].sort()));
-  return { fresh, known };
+  return { fresh, known, fingerprints: [...seen].sort() };
+}
+
+/** Persist the classification. Call only after the report those bugs live in is on disk. */
+export function commitSeen(ctx: RuntimeContext, projectName: string, fingerprints: string[]): void {
+  ensureDir(ctx.stateDir);
+  fs.writeFileSync(stateFilePath(ctx, projectName), JSON.stringify(fingerprints));
 }
 
 export function resetState(ctx: RuntimeContext, projectName: string): void {
-  const f = path.join(ctx.stateDir, `${projectName}.json`);
+  const f = stateFilePath(ctx, projectName);
   if (fs.existsSync(f)) fs.unlinkSync(f);
 }
 
@@ -476,21 +506,35 @@ export async function postToSlack(project: ProjectConfig, report: Report, freshB
       `*Expected:* ${bug.expected}\n*Actual:* ${bug.actual}` + (bug.evidence ? `\n*Evidence:* ${bug.evidence}` : "") } });
   }
   const res = await fetch(webhook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blocks }) });
-  if (!res.ok) throw new Error(`Slack post failed: ${res.status} ${await res.text()}`);
+  // Phrased as the bare cause, not "Slack post failed: …" — every caller already says that
+  // much itself, and the doubled prefix is all a reader gets before the useful part.
+  if (!res.ok) throw new Error(`HTTP ${res.status} from the webhook: ${(await res.text()).slice(0, 200)}`);
   return true;
 }
 
 // ---------- One-shot orchestration (used by CLI, MCP, CI) ----------
 
 /**
- * Everything that happens to a report *after* somebody produced it: dedupe against
- * previously-seen bugs, stamp the project and time, notify Slack, write the artifact.
+ * Everything that happens to a report *after* somebody produced it: classify against
+ * previously-seen bugs, stamp the project and time, notify Slack, write the artifact,
+ * and only then advance the dedupe state.
  *
  * Shared rather than duplicated because both modes end here — `runProject` after its
  * private agent loop, `qa_submit_report` after the harness's model drove the browser
  * itself. Dedupe semantics living in two places is exactly the class of bug this
  * codebase already designs against elsewhere (`statusOf` derived from the plan;
  * `describeContext` shared between `where` and `doctor`).
+ *
+ * The ordering is the point. Dedupe state is a cache of what we have already told someone
+ * about, so it may not advance past what is actually on disk: a crash between the artifact
+ * write and the commit re-reports bugs the user has already seen, which is the direction to
+ * be wrong in. The old order committed first and wrote last, so one flaky webhook marked
+ * every bug seen with no report to show for it — findings weren't merely unsaved, they were
+ * suppressed on every later run until someone ran `lisa reset`.
+ *
+ * Slack sits between the stamping and the write so its outcome lands *in* the artifact
+ * rather than needing a second write to record it. It cannot abort anything: a run that
+ * drove the browser and found bugs succeeded, whatever a webhook said about it afterwards.
  */
 export async function finishReport(
   project: ProjectConfig,
@@ -498,14 +542,26 @@ export async function finishReport(
   report: Report,
   opts: { slack?: boolean } = {},
 ): Promise<Report> {
-  const { fresh, known } = dedupe(ctx, project.name, report.bugs ?? []);
+  const { fresh, known, fingerprints } = classifyBugs(ctx, project.name, report.bugs ?? []);
   report.project = project.name;
   report.ran_at = new Date().toISOString();
   report.new_bugs = fresh;
   report.known_bugs = known;
-  if (opts.slack !== false) await postToSlack(project, report, fresh, known.length);
+
+  // Best-effort *here*, at the boundary — `postToSlack` itself keeps throwing, which is the
+  // right contract for a function whose whole job is to post. Never swallowed silently:
+  // telling someone their team was notified when it wasn't is worse than the crash was.
+  if (opts.slack !== false) {
+    try {
+      await postToSlack(project, report, fresh, known.length);
+    } catch (e: any) {
+      report.slack_error = String(e?.message ?? e).slice(0, 300);
+    }
+  }
+
   ensureDir(ctx.artifactsDir);
   fs.writeFileSync(reportPath(ctx, project.name), JSON.stringify(report, null, 2));
+  commitSeen(ctx, project.name, fingerprints);
   return report;
 }
 
