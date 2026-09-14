@@ -24,8 +24,10 @@ src/config.ts        config loading + validation
 src/env.ts           .env loading (beside the config, never clobbers process.env)
 src/templates.ts     template lookup + rendering
 src/commands/init.ts `lisa init`
+src/commands/install.ts `lisa install`
+src/harness/         harness adapters: plan() what would change, then apply it
 src/banner.ts        wordmark
-templates/           config + starter-mission templates
+templates/           config, starter missions, and the agent workflow
 lisa.config.yaml     your projects + missions
 ```
 
@@ -75,6 +77,7 @@ environment wins, so CI secrets are never overwritten by a checked-out file.
 
 ```bash
 lisa init                              # scaffold a config (see above)
+lisa install claude-code               # wire it into your agent harness
 lisa list                              # configured projects (flags unset credentials)
 lisa run acme-dashboard                # headless run, streams every action live
 lisa run acme-dashboard --headed       # opens a Chromium window so you can watch
@@ -88,15 +91,24 @@ While it runs you'll see the agent's one-line reasoning in grey, each browser ac
 
 ## 2. Inside an agent harness
 
-Register the MCP server from your app's repo:
+From your app's repo:
 
 ```bash
-claude mcp add --scope project --transport stdio lisa \
-  --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-  -- node /abs/path/to/lisa/dist/mcp-server.js --config /abs/path/to/lisa.config.yaml
+lisa install claude-code
 ```
 
-Copy `.claude/skills/lisa/` into your app repo's `.claude/skills/` so the harness knows the workflow. Then:
+That writes two files and leaves everything else alone:
+
+| File | What it is |
+|---|---|
+| `.mcp.json` | the MCP server registration, merged in beside your other servers |
+| `.claude/skills/lisa/SKILL.md` | the workflow — how to run QA, triage, fix, and re-verify |
+
+Both are project-scoped, so they travel with the repo and your team gets the wiring
+through git. The registration carries an **absolute** `--config` path: the harness starts
+the server with its own working directory, so config discovery can't be relied on.
+
+Then:
 
 > **you:** run QA on acme-dashboard and fix anything critical
 > **agent:** *(calls `run_qa`, reads the bug list + screenshots, locates the code, patches it, runs tests, then calls `run_qa` again with a `mission_override` focused on the fixed flow)*
@@ -105,7 +117,25 @@ Tools exposed: `list_qa_projects`, `run_qa` (with optional `post_to_slack` and `
 
 This is the interesting mode: lisa finds it, the coding agent (which has your source) fixes it, then re-verifies against staging.
 
-> A `lisa install` command that writes this registration for you — for Claude Code, Codex, Cursor, Windsurf, or any harness via a printed snippet — is the next milestone. Today it's the manual command above.
+Everything `install` can do is a view of the same computed plan, so nothing drifts:
+
+```bash
+lisa install --list                    # supported harnesses, and which are on this machine
+lisa install --status                  # detected + wired / out of date / not wired, per harness
+lisa install claude-code --dry-run     # what would change
+lisa install claude-code --print       # the file contents, to place by hand
+lisa install claude-code --yes         # write, no prompts
+```
+
+Other flags: `--dir <path>` (write harness files somewhere other than the config's
+directory) and `--command "<cmd>"` (override how the harness starts the MCP server —
+by default `lisa-mcp` if it's on PATH, otherwise the `dist/mcp-server.js` in this checkout).
+
+Re-running `install` is safe: files lisa owns are regenerated, `.mcp.json` is merged one
+key at a time, and a `.mcp.json` it can't parse is a hard stop rather than an overwrite.
+
+> Codex, Cursor, Windsurf, and a generic `AGENTS.md` adapter are next; they plug into the
+> same registry. Today `claude-code` is the one that ships.
 
 ## 3. Scheduled / CI
 

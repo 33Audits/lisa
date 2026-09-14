@@ -3,6 +3,7 @@
  * lisa — terminal app.
  *
  *   lisa init                                scaffold a config
+ *   lisa install [harness]                   wire lisa into Claude Code (and friends)
  *   lisa list                                show configured projects
  *   lisa run <project> [--headed] [--all]    run a QA session, streaming actions live
  *   lisa report <project>                    pretty-print the last report
@@ -19,6 +20,8 @@ import { resolveContext, UserError, type RuntimeContext } from "./paths.js";
 import { loadEnvFile } from "./env.js";
 import { printBanner, bannerLine } from "./banner.js";
 import { initCommand, MISSION_KEYS, type MissionKey } from "./commands/init.js";
+import { installCommand, listHarnesses } from "./commands/install.js";
+import { harnessIds } from "./harness/index.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -123,6 +126,27 @@ withConfig(program.command("init").description("scaffold a lisa.config.yaml for 
       mission: o.mission as MissionKey | undefined,
       nonProduction: o.nonProduction,
     });
+  });
+
+withConfig(program.command("install").description("wire lisa into an agent harness"))
+  .argument("[harness]", `which harness: ${harnessIds().join(" | ")}`)
+  .option("-d, --dir <path>", "directory to write harness files into (default: the config's directory)")
+  .option("-y, --yes", "don't prompt; just write")
+  .option("-n, --dry-run", "show what would change, write nothing")
+  .option("--print", "print the file contents instead of writing them")
+  .option("--status", "report whether this harness is wired, and stop")
+  .option("--list", "list the supported harnesses")
+  .option("--command <cmd>", "override the command the harness uses to start lisa's MCP server")
+  .action(async (harness: string | undefined, o) => {
+    // --list is a catalogue, not an operation: it must work before there is a config.
+    if (o.list) return listHarnesses();
+    const quiet = o.yes || o.print || o.status || o.dryRun;
+    if (!quiet) printBanner(version);
+    await installCommand(
+      { dir: o.dir, command: o.command, yes: o.yes, dryRun: o.dryRun, print: o.print, status: o.status },
+      context(o.config),
+      harness,
+    );
   });
 
 withConfig(program.command("list").description("show configured projects")).action((o) => {
