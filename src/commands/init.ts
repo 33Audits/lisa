@@ -17,6 +17,7 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { contextFor, findProjectConfig, globalConfigPath, initTargetPath, UserError } from "../paths.js";
 import { readTemplate, render } from "../templates.js";
+import { isEnvVarName } from "../config.js";
 import {
   DEFAULT_TOOLS_MODE,
   HARNESSES,
@@ -382,21 +383,35 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
   if (needsLogin) {
     const defUser = `${prefix}_USERNAME`;
     const defPass = `${prefix}_PASSWORD`;
+    // These prompts ask for a NAME, so people paste the secret. Catch it here: the value
+    // flows into lisa.config.yaml and into `.env.example`, which is committed.
+    const nameOnly = (role: string) => (v: string | undefined) =>
+      v && !isEnvVarName(v.trim())
+        ? `That looks like the ${role} itself. Enter the NAME of the env var that holds it (letters, digits, _).`
+        : undefined;
+    const checkFlag = (flag: string, v: string | undefined) => {
+      if (v !== undefined && !isEnvVarName(v))
+        throw new UserError(
+          `--${flag} takes the NAME of an env var (e.g. ${prefix}_PASSWORD), not the secret itself.\n` +
+            `  The name is written to lisa.config.yaml and .env.example — put the value in .env instead.`,
+        );
+      return v;
+    };
     credentials.username =
-      opts.usernameEnv ??
+      checkFlag("username-env", opts.usernameEnv) ??
       (interactive
         ? (
             await ask(
-              p.text({ message: "Env var holding the test username", placeholder: defUser, defaultValue: defUser }),
+              p.text({ message: "Env var holding the test username", placeholder: defUser, defaultValue: defUser, validate: nameOnly("username") }),
             )
           ).trim() || defUser
         : defUser);
     credentials.password =
-      opts.passwordEnv ??
+      checkFlag("password-env", opts.passwordEnv) ??
       (interactive
         ? (
             await ask(
-              p.text({ message: "Env var holding the test password", placeholder: defPass, defaultValue: defPass }),
+              p.text({ message: "Env var holding the test password", placeholder: defPass, defaultValue: defPass, validate: nameOnly("password") }),
             )
           ).trim() || defPass
         : defPass);

@@ -10,6 +10,27 @@ import yaml from "js-yaml";
 import { z } from "zod";
 import { UserError, type RuntimeContext } from "./paths.js";
 
+/**
+ * Env var names only — `A-Z`, `0-9`, `_`. A literal secret pasted here (an email, a URL,
+ * anything with a `@`, `.`, or `-`) can never name an env var, so it resolves to nothing and
+ * the run silently loses its credentials. Reject it at load instead of degrading.
+ *
+ * A literal that happens to look like an identifier still slips through — that case lands in
+ * `missing` at resolve time, which is already reported.
+ */
+const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** True when `v` could name an env var. `lisa init` checks this before writing a name anywhere. */
+export function isEnvVarName(v: string): boolean {
+  return ENV_VAR_NAME.test(v);
+}
+
+const EnvVarName = z.string().refine((v) => ENV_VAR_NAME.test(v), {
+  message:
+    "must be the NAME of an env var (e.g. ACME_QA_PASSWORD), not the secret itself. " +
+    "Put the value in .env beside this config and reference it by name here.",
+});
+
 const ProjectSchema = z
   .object({
     name: z.string().min(1),
@@ -17,7 +38,7 @@ const ProjectSchema = z
     /** Navigation outside this host is blocked. Defaults to base_url's host. */
     allowed_host: z.string().min(1).optional(),
     /** Map of role -> env var NAME holding the secret, e.g. { username: ACME_QA_USERNAME }. */
-    credentials_env: z.record(z.string()).default({}),
+    credentials_env: z.record(EnvVarName).default({}),
     mission: z.string().min(1),
   })
   .transform((p) => ({ ...p, allowed_host: p.allowed_host ?? new URL(p.base_url).host }));
