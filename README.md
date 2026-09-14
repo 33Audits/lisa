@@ -25,7 +25,9 @@ src/env.ts           .env loading (beside the config, never clobbers process.env
 src/templates.ts     template lookup + rendering
 src/commands/init.ts `lisa init`
 src/commands/install.ts `lisa install`
+src/commands/doctor.ts `lisa doctor`
 src/harness/         harness adapters: plan() what would change, then apply it
+src/browser.ts        lazy Chromium install (on first `lisa run`, not on `npm install`)
 src/banner.ts        wordmark
 templates/           config, starter missions, and the agent briefs
 lisa.config.yaml     your projects + missions
@@ -34,10 +36,17 @@ lisa.config.yaml     your projects + missions
 ## Install
 
 ```bash
-npm install                      # also downloads Playwright's Chromium (postinstall)
+npm install                      # deps only — Chromium is not downloaded here
 npm run build                    # → dist/, makes `lisa` and `lisa-mcp` bins
 npm link                         # optional: puts `lisa` on your PATH
 ```
+
+Chromium downloads lazily on the first `lisa run` (~150MB, one time), not on `npm install` —
+a global install shouldn't pull that unprompted for someone who only needs the terminal app
+pointed at an already-wired MCP harness. Set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` to opt out
+entirely (e.g. a machine with its own Chromium already on the expected path); `lisa run` then
+fails with instructions instead of downloading. Run `lisa doctor` any time to check whether
+it's installed without triggering a download.
 
 Then, from your app's repo:
 
@@ -87,6 +96,7 @@ lisa run acme-dashboard --mission "…"  # one focused run instead of the config
 lisa report acme-dashboard             # re-print the last report
 lisa reset acme-dashboard              # forget seen bugs; next run reports all
 lisa where                             # which config + directories are in use
+lisa doctor                            # API key, Chromium, config, harness wiring — all in one
 ```
 
 While it runs you'll see the agent's one-line reasoning in grey, each browser action (`▶ navigate …`, `▶ click …`), and `read_page` results flagged red when console errors or failed requests were captured. `lisa run` exits with code 2 if any **new critical** bug was found, so CI can gate on it.
@@ -190,6 +200,10 @@ lisa finds it by walking up from the current directory to the repo root, then fa
 | `LISA_STATE_DIR` | `.lisa/state` | seen-bug fingerprints |
 | `LISA_ARTIFACTS_DIR` | `.lisa/artifacts` | reports + screenshots |
 | `LISA_NO_BANNER` | — | suppress the wordmark |
+| `ANTHROPIC_API_KEY` | — | required — the agent loop calls the Claude API directly |
+| `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | — | don't lazily download Chromium; fail instead if it's missing |
+
+Run `lisa doctor` to check all of the above (API key, Chromium, config, harness wiring) in one shot.
 
 ## Safety rails
 

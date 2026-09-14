@@ -9,6 +9,7 @@
  *   lisa report <project>                    pretty-print the last report
  *   lisa reset <project>                     forget seen bugs (re-report everything)
  *   lisa where                               show which config and directories are in use
+ *   lisa doctor                              check API key, Chromium, config, and harness wiring
  */
 
 import { createRequire } from "node:module";
@@ -16,11 +17,12 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { runProject, loadLastReport, resetState, type AgentEvent, type Report, type Bug } from "./core.js";
 import { loadProjects, findProject, resolveCredentials } from "./config.js";
-import { resolveContext, UserError, type RuntimeContext } from "./paths.js";
+import { describeContext, resolveContext, UserError, type RuntimeContext } from "./paths.js";
 import { loadEnvFile } from "./env.js";
 import { printBanner, bannerLine } from "./banner.js";
 import { initCommand, MISSION_KEYS, type MissionKey } from "./commands/init.js";
 import { installCommand, listHarnesses } from "./commands/install.js";
+import { doctorCommand } from "./commands/doctor.js";
 import { harnessIds } from "./harness/index.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -214,11 +216,11 @@ withConfig(program.command("reset").description("forget previously-seen bugs for
 
 withConfig(program.command("where").description("show which config and directories are in use")).action((o) => {
   const ctx: RuntimeContext = context(o.config);
-  const row = (k: string, v: string) => console.log(`  ${pc.dim(k.padEnd(10))} ${v}`);
-  row("scope", ctx.scope);
-  row("config", ctx.configPath);
-  row("state", ctx.stateDir);
-  row("artifacts", ctx.artifactsDir);
+  for (const { label, value } of describeContext(ctx)) console.log(`  ${pc.dim(label.padEnd(10))} ${value}`);
+});
+
+withConfig(program.command("doctor").description("check the environment: API key, Chromium, config, harness wiring")).action(async (o) => {
+  await doctorCommand(o.config);
 });
 
 if (process.argv.length <= 2) {

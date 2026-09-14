@@ -122,3 +122,13 @@ export function ensureDir(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
+
+/** The rows `lisa where` prints — factored out so `lisa doctor` renders the same ones. */
+export function describeContext(ctx: RuntimeContext): { label: string; value: string }[] {
+  return [
+    { label: "scope", value: ctx.scope },
+    { label: "config", value: ctx.configPath },
+    { label: "state", value: ctx.stateDir },
+    { label: "artifacts", value: ctx.artifactsDir },
+  ];
+}

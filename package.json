@@ -3,6 +3,16 @@
   "version": "1.0.0",
   "description": "LISA — autonomous QA agent. Claude drives a real browser through your staging app, finds bugs, and reports them. Terminal app, MCP server for any agent harness, and CI runner.",
   "type": "module",
+  "license": "MIT",
+  "author": "JeffreyJoel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JeffreyJoel/qa-agent-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JeffreyJoel/qa-agent-ts/issues"
+  },
+  "homepage": "https://github.com/JeffreyJoel/qa-agent-ts#readme",
   "bin": {
     "lisa": "dist/cli.js",
     "lisa-mcp": "dist/mcp-server.js"
@@ -10,7 +20,8 @@
   "files": [
     "dist",
     "templates",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"
@@ -28,8 +39,7 @@
     "build": "tsc -p . && chmod +x dist/cli.js dist/mcp-server.js",
     "typecheck": "tsc -p . --noEmit",
     "dev": "tsx src/cli.ts",
-    "mcp": "tsx src/mcp-server.ts",
-    "postinstall": "playwright install chromium"
+    "mcp": "tsx src/mcp-server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",

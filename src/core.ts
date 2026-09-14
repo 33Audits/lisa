@@ -13,6 +13,7 @@ import crypto from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, Tool, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages";
 import { chromium, type Browser as PwBrowser, type Page, type ConsoleMessage, type Request, type Response } from "playwright";
+import { ensureChromium } from "./browser.js";
 import { ensureDir, type RuntimeContext } from "./paths.js";
 import { resolveCredentials, type ProjectConfig } from "./config.js";
 
@@ -127,6 +128,7 @@ class BrowserSession {
   constructor(private allowedHost: string, private shotsDir: string, private opts: RunOptions) {}
 
   async launch(): Promise<void> {
+    ensureChromium();
     this.pw = await chromium.launch({ headless: !this.opts.headed, slowMo: this.opts.headed ? this.opts.slowMo ?? 250 : 0 });
     this.page = await this.pw.newPage({ viewport: { width: 1440, height: 900 } });
     this.page.on("console", (m: ConsoleMessage) => { if (m.type() === "error") this.consoleErrors.push(m.text()); });
