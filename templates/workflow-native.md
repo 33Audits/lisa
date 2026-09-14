@@ -16,6 +16,9 @@ No API key is involved: you are the QA engineer, using the browser lisa opened.
 
 1. If the user didn't name a project, call `list_qa_projects` and pick the one matching this repo (or ask).
 2. Call `qa_start_session` with the project name. Read what it returns — the mission, the credential roles, and the rules — before you touch the page.
+   - **If the user asked for something specific, pass it as `mission_override`.** The configured mission is the default brief, not the only one. "Test the matter creation flow", "QA the checkout", "check the feature we just shipped" — turn that into a concrete numbered mission and override with it. Running the generic mission when the user asked for one flow wastes a session and answers the wrong question.
+   - **"The recent feature" is something you work out, not something you ask about.** Read `git log`/`git diff` for the recent work, find the routes and components it touched, and write the mission from that — then say in one line which flow you derived and are about to test. Ask only if the diff is genuinely ambiguous.
+   - Keep an override in the same shape as a configured mission: numbered steps, concrete pages, and what "correct" looks like at each one. End it with "Report only issues with this flow." when the user scoped you to one.
 3. Work the mission like a real user: navigate, click through flows, fill forms with plausible test data, and check each page renders and behaves as it should.
 4. Call `qa_submit_report` exactly once when you're done, even if you found nothing. It closes the browser and returns the same deduped report shape as a CLI run.
 

@@ -159,7 +159,11 @@ if (TOOLS === "oneshot" || TOOLS === "both") {
       inputSchema: {
         project: z.string().describe("Project name from list_qa_projects"),
         post_to_slack: z.boolean().default(false).describe("Post new bugs to the Slack QA channel"),
-        mission_override: z.string().optional().describe("Replace the configured mission with a focused one, e.g. to re-verify a specific fix"),
+        mission_override: z.string().optional().describe(
+          "Replace the configured mission for this run. Use it whenever the user asked for something narrower than " +
+            "the configured brief — one flow (\"test matter creation\"), a recent change, or re-verifying a fix. " +
+            "Same shape as a configured mission: numbered steps, concrete pages, and what correct looks like at each one.",
+        ),
       },
     },
     async ({ project, post_to_slack, mission_override }) => {
@@ -212,7 +216,11 @@ if (TOOLS === "native" || TOOLS === "both") {
         "then finish with qa_submit_report exactly once.",
       inputSchema: {
         project: z.string().describe("Project name from list_qa_projects"),
-        mission_override: z.string().optional().describe("Replace the configured mission with a focused one, e.g. to re-verify a specific fix"),
+        mission_override: z.string().optional().describe(
+          "Replace the configured mission for this run. Use it whenever the user asked for something narrower than " +
+            "the configured brief — one flow (\"test matter creation\"), a recent change, or re-verifying a fix. " +
+            "Same shape as a configured mission: numbered steps, concrete pages, and what correct looks like at each one.",
+        ),
       },
     },
     async ({ project, mission_override }) => {
