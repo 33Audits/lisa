@@ -17,8 +17,8 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { contextFor, findProjectConfig, globalConfigPath, initTargetPath, UserError } from "../paths.js";
 import { readTemplate, render } from "../templates.js";
-import { HARNESSES, detectAll, detectTarget, findHarness } from "../harness/index.js";
-import { installCommand } from "./install.js";
+import { DEFAULT_TOOLS_MODE, HARNESSES, detectAll, detectTarget, findHarness, type ToolsMode } from "../harness/index.js";
+import { installCommand, pickToolsMode } from "./install.js";
 
 export interface InitOptions {
   config?: string;
@@ -35,6 +35,8 @@ export interface InitOptions {
   nonProduction?: boolean;
   /** A harness id, or "none" for standalone/CI. Skips the interactive question either way. */
   harness?: string;
+  /** Tool surface for the chained install. Undefined asks on a TTY; ignored without a harness. */
+  mode?: ToolsMode;
 }
 
 /**
@@ -235,6 +237,11 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
   // ---- how will you run lisa? (asked first — it decides what happens after the write) ----
   const harnessFlag = resolveHarnessFlag(opts.harness);
   const harnessChoice = harnessFlag !== undefined ? harnessFlag : interactive ? await pickInitHarness(root) : null;
+  // Resolved here rather than inside the chained install, because the "next steps" printed
+  // below differ by mode — a native user must not be told to go and get an API key.
+  const toolsMode: ToolsMode = harnessChoice
+    ? (opts.mode ?? (interactive ? await pickToolsMode() : DEFAULT_TOOLS_MODE))
+    : DEFAULT_TOOLS_MODE;
 
   // ---- existing config: append, overwrite, or bail ----
   let mode: "create" | "append" | "overwrite" = exists ? "append" : "create";
@@ -400,18 +407,24 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
     ...(ignored.length ? [`updated  ${rel(path.join(root, ".gitignore"))}  (+${ignored.join(", ")})`] : []),
   ];
 
-  // The API key step differs slightly when a harness is going to run the MCP server on
-  // your behalf, and the final "go run it" step is redundant once we're about to chain
-  // into `lisa install` — that command prints its own harness-specific next steps.
+  // The API key step depends on who is going to do the reasoning. In native mode the
+  // harness's own model drives, so there is no second key to set — saying otherwise here
+  // would send someone to the Console to solve a problem they just avoided. `lisa run`
+  // and CI still call the API directly either way, which is why the line isn't dropped.
   const steps: string[] = [];
   if (Object.values(credentials).length) {
     steps.push(`Put the test credentials in ${pc.bold(rel(path.join(root, ".env")))}: ${Object.values(credentials).join(", ")}`);
   }
-  steps.push(
-    harnessChoice
-      ? `Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell) — the lisa-mcp process ${findHarness(harnessChoice).displayName} spawns needs it too.`
-      : `Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell).`,
-  );
+  if (harnessChoice && toolsMode === "native") {
+    steps.push(
+      `No ${pc.bold("ANTHROPIC_API_KEY")} needed — ${findHarness(harnessChoice).displayName} drives the browser itself. ` +
+        `(Set one only if you also want to run ${pc.bold("lisa run")} or CI.)`,
+    );
+  } else if (harnessChoice) {
+    steps.push(`Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell) — the lisa-mcp process ${findHarness(harnessChoice).displayName} spawns needs it too.`);
+  } else {
+    steps.push(`Set ${pc.bold("ANTHROPIC_API_KEY")} (in .env or your shell).`);
+  }
   steps.push(`Sharpen the mission in ${pc.bold(rel(target))} — the more specific it is, the better the report.`);
   if (!harnessChoice) steps.push(`Run ${pc.bold(`lisa run ${name}`)}${interactive ? pc.dim("  (add --headed to watch)") : ""}`);
   const next = steps.map((s, i) => `${i + 1}. ${s}`);
@@ -428,6 +441,7 @@ export async function initCommand(opts: InitOptions, cwd: string = process.cwd()
   // ---- chain into `lisa install` when the first question picked a harness ----
   if (harnessChoice) {
     const ctx = contextFor(target, opts.global ? "global" : "project");
-    await installCommand({ yes: opts.yes }, ctx, harnessChoice);
+    // `mode` is passed explicitly so `installCommand` doesn't ask the question again.
+    await installCommand({ yes: opts.yes, mode: toolsMode }, ctx, harnessChoice);
   }
 }

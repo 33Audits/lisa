@@ -23,7 +23,7 @@ import { printBanner, bannerLine } from "./banner.js";
 import { initCommand, MISSION_KEYS, type MissionKey } from "./commands/init.js";
 import { installCommand, listHarnesses } from "./commands/install.js";
 import { doctorCommand } from "./commands/doctor.js";
-import { harnessIds } from "./harness/index.js";
+import { harnessIds, parseToolsMode, TOOLS_MODES } from "./harness/index.js";
 
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
@@ -53,7 +53,8 @@ function renderEvent(e: AgentEvent): void {
       const detail =
         e.name === "navigate" ? a.url :
         e.name === "click" ? (a.selector ?? `"${a.text}"`) :
-        e.name === "fill" ? `${a.selector} ← ${JSON.stringify(a.value)}` :
+        // Never print a credential's value — the role name is what's informative anyway.
+        e.name === "fill" ? `${a.selector} ← ${a.credential ? pc.dim(`<${a.credential}>`) : JSON.stringify(a.value)}` :
         e.name === "screenshot" ? a.name :
         e.name === "wait" ? `${a.seconds}s` :
         e.name === "submit_report" ? `${(a.bugs ?? []).length} bug(s)` : "";
@@ -113,6 +114,7 @@ withConfig(program.command("init").description("scaffold a lisa.config.yaml for 
   .option("--mission <kind>", `starter mission: ${MISSION_KEYS.join(" | ")}`)
   .option("--non-production", "assert the URL is not production (required by --yes on a prod-looking host)")
   .option("--harness <id|none>", `wire into an agent harness after writing the config (${harnessIds().join(" | ")}), or "none" for standalone/CI — skips the interactive question either way`)
+  .option("--mode <mode>", `tool surface for the chained install: ${TOOLS_MODES.join(" | ")}`)
   .action(async (o) => {
     if (!o.yes) printBanner(version);
     await initCommand({
@@ -129,6 +131,7 @@ withConfig(program.command("init").description("scaffold a lisa.config.yaml for 
       mission: o.mission as MissionKey | undefined,
       nonProduction: o.nonProduction,
       harness: o.harness,
+      mode: o.mode ? parseToolsMode(o.mode) : undefined,
     });
   });
 
@@ -141,13 +144,25 @@ withConfig(program.command("install").description("wire lisa into an agent harne
   .option("--status", "report whether this harness is wired, and stop")
   .option("--list", "list the supported harnesses")
   .option("--command <cmd>", "override the command the harness uses to start lisa's MCP server")
+  .option(
+    "--mode <mode>",
+    `native: your agent drives the browser (no second API key) | oneshot: lisa drives and hands back a report (needs ANTHROPIC_API_KEY)`,
+  )
   .action(async (harness: string | undefined, o) => {
     // --list is a catalogue, not an operation: it must work before there is a config.
     if (o.list) return listHarnesses();
     const quiet = o.yes || o.print || o.status || o.dryRun;
     if (!quiet) printBanner(version);
     await installCommand(
-      { dir: o.dir, command: o.command, yes: o.yes, dryRun: o.dryRun, print: o.print, status: o.status },
+      {
+        dir: o.dir,
+        command: o.command,
+        yes: o.yes,
+        dryRun: o.dryRun,
+        print: o.print,
+        status: o.status,
+        mode: o.mode ? parseToolsMode(o.mode) : undefined,
+      },
       context(o.config),
       harness,
     );

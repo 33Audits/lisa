@@ -49,14 +49,19 @@ export function ensureChromium(): void {
     );
   }
 
-  console.log(pc.dim("First run: downloading Chromium (one-time, ~150MB)…"));
+  // stderr, never stdout: `lisa-mcp` uses stdout as the JSON-RPC transport, and the first
+  // browser launch on a fresh machine happens *inside* a tool call. A download notice or a
+  // progress bar on stdout is not noise there — it corrupts the protocol stream. The CLI
+  // renders progress on stderr just as well, so there is no reason to ever write stdout here.
+  console.error(pc.dim("First run: downloading Chromium (one-time, ~150MB)…"));
   let cli: string;
   try {
     cli = playwrightCli();
   } catch {
     throw new UserError("Couldn't locate playwright's CLI to install Chromium. Run `npx playwright install chromium` yourself.");
   }
-  const result = spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" });
+  // ["ignore", "ignore", 2]: the installer's own stdout is discarded rather than inherited.
+  const result = spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: ["ignore", "ignore", 2] });
   if (result.status !== 0 || !chromiumInstalled()) {
     throw new UserError("Failed to install Chromium. Run `npx playwright install chromium` yourself and try again.");
   }

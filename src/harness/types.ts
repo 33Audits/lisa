@@ -16,12 +16,37 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { RuntimeContext } from "../paths.js";
+import { UserError, type RuntimeContext } from "../paths.js";
 
 /** How lisa's MCP server gets launched by the harness. */
 export interface ServerCommand {
   command: string;
   args: string[];
+}
+
+/**
+ * Which tool surface the harness gets, and therefore which brief it's given.
+ *
+ * `native` exposes the browser primitives so the harness's own model drives — no second
+ * API key. `oneshot` exposes `run_qa`, which runs lisa's private agent loop against its
+ * own ANTHROPIC_API_KEY. One field, because these are not independent choices: a brief
+ * telling the agent to call `run_qa` against a server registered with `--tools native` is
+ * a brief describing a tool that isn't there.
+ */
+export type ToolsMode = "native" | "oneshot";
+export const TOOLS_MODES: ToolsMode[] = ["native", "oneshot"];
+
+/**
+ * `lisa install` writes native; `lisa-mcp` itself still defaults to oneshot. Two defaults
+ * on purpose — someone wiring into a coding agent wants native, and every registration
+ * already on disk (none of which carry `--tools`) must keep working untouched.
+ */
+export const DEFAULT_TOOLS_MODE: ToolsMode = "native";
+
+export function parseToolsMode(raw: string): ToolsMode {
+  const value = raw.trim().toLowerCase();
+  if ((TOOLS_MODES as string[]).includes(value)) return value as ToolsMode;
+  throw new UserError(`Unknown --mode "${raw}". Expected ${TOOLS_MODES.join(" or ")}.`);
 }
 
 /**
@@ -40,6 +65,8 @@ export interface InstallTarget extends DetectTarget {
   /** The resolved lisa context — `ctx.configPath` is what gets baked into registrations. */
   ctx: RuntimeContext;
   server: ServerCommand;
+  /** Drives both the server's `--tools` argument and which brief the adapter renders. */
+  mode: ToolsMode;
 }
 
 export interface DetectResult {

@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentsChange } from "./agents-md.js";
+import { briefFor } from "./instructions.js";
 import { mcpJsonChange } from "./merge.js";
 import type { DetectResult, DetectTarget, FileChange, Harness, InstallTarget } from "./types.js";
 
@@ -32,7 +33,7 @@ export const windsurf: Harness = {
   },
 
   plan(target: InstallTarget): FileChange[] {
-    return [mcpJsonChange(path.join(target.home, WINDSURF_MCP_FILE), target.server), agentsChange(target, "mcp")];
+    return [mcpJsonChange(path.join(target.home, WINDSURF_MCP_FILE), target.server), agentsChange(target, briefFor(target))];
   },
 
   nextSteps(): string[] {

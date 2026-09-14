@@ -1,15 +1,17 @@
 /**
  * Agent instructions, rendered from one source per *brief*.
  *
- * There are two briefs, not one template with a swappable invocation line. The CLI-only
- * variant differs in more than naming: there is no `mission_override` argument (it's a
- * `--mission` flag), Slack is opt-*out* rather than opt-in, and exit codes matter because
- * the agent is reading a shell result instead of a tool response. Parameterising all of
- * that would have produced a template nobody could read.
+ * There are two briefs, not one template with a swappable invocation line. The `native`
+ * variant differs in more than naming: the agent drives the browser itself rather than
+ * waiting on one long tool call, so it needs the QA procedure, the destructive-action
+ * rules, the severity guide, and a note about what `qa_read_page` costs its own context —
+ * none of which the `mcp` brief has any use for. Parameterising all of that would have
+ * produced a template nobody could read.
  *
- * What *is* shared is the procedure (run → triage → fix → re-verify), the wrapper
- * templates, and the per-install substitution: the paths in the brief point at the
- * *user's* repo, so they're rendered per target rather than hardcoded.
+ * What *is* shared is the second half — triage → fix → re-verify. That half is about
+ * *this repo's code*, not about how QA ran, so it reads nearly identically in both.
+ * Also shared: the wrapper templates and the per-install substitution, since the paths
+ * in a brief point at the *user's* repo rather than anything hardcoded.
  */
 
 import path from "node:path";
@@ -17,9 +19,17 @@ import { readTemplate, render } from "../templates.js";
 import type { InstallTarget } from "./types.js";
 
 /** Which set of instructions the harness can actually act on. */
-export type Brief = "mcp" | "cli";
+export type Brief = "mcp" | "native";
 
-const WORKFLOW_TEMPLATE: Record<Brief, string> = { mcp: "workflow.md", cli: "workflow-cli.md" };
+const WORKFLOW_TEMPLATE: Record<Brief, string> = { mcp: "workflow.md", native: "workflow-native.md" };
+
+/**
+ * The brief that matches the tool surface being registered. One expression, in one place,
+ * so an adapter can't wire `--tools native` and then hand the agent `run_qa` instructions.
+ */
+export function briefFor(target: InstallTarget): Brief {
+  return target.mode === "native" ? "native" : "mcp";
+}
 
 /** The skill/rule `description:` — natural-language triggers, not brand words. */
 export const SKILL_DESCRIPTION =

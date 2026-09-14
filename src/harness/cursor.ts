@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { mcpJsonChange } from "./merge.js";
-import { renderDocument } from "./instructions.js";
+import { briefFor, renderDocument } from "./instructions.js";
 import { change, type DetectResult, type DetectTarget, type FileChange, type Harness, type InstallTarget } from "./types.js";
 
 export const CURSOR_DIR = ".cursor";
@@ -36,7 +36,7 @@ export const cursor: Harness = {
   plan(target: InstallTarget): FileChange[] {
     return [
       mcpJsonChange(path.join(target.dir, CURSOR_MCP_FILE), target.server),
-      change(path.join(target.dir, CURSOR_RULE_FILE), renderDocument("cursor-rule.mdc", target, "mcp"), "agent workflow (rule)"),
+      change(path.join(target.dir, CURSOR_RULE_FILE), renderDocument("cursor-rule.mdc", target, briefFor(target)), "agent workflow (rule)"),
     ];
   },
 

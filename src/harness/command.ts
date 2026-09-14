@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { UserError, type RuntimeContext } from "../paths.js";
 import { packageRoot } from "../templates.js";
-import type { ServerCommand } from "./types.js";
+import { DEFAULT_TOOLS_MODE, type ServerCommand, type ToolsMode } from "./types.js";
 
 const MCP_BIN = process.platform === "win32" ? "lisa-mcp.cmd" : "lisa-mcp";
 
@@ -40,8 +40,15 @@ export function splitCommand(raw: string): string[] {
   return parts.map((p) => (/^["'].*["']$/.test(p) ? p.slice(1, -1) : p));
 }
 
-export function resolveServerCommand(ctx: RuntimeContext, override?: string): ServerCommand {
-  const args = ["--config", ctx.configPath];
+export function resolveServerCommand(
+  ctx: RuntimeContext,
+  override?: string,
+  mode: ToolsMode = DEFAULT_TOOLS_MODE,
+): ServerCommand {
+  // `--tools` is written explicitly even for oneshot, which is also the server's default.
+  // A registration that names its mode is a registration whose behaviour doesn't change
+  // under someone else's later decision about what the default should be.
+  const args = ["--config", ctx.configPath, "--tools", mode];
 
   if (override) {
     const [command, ...rest] = splitCommand(override);

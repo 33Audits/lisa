@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { mcpJsonChange } from "./merge.js";
-import { renderDocument } from "./instructions.js";
+import { briefFor, renderDocument } from "./instructions.js";
 import { change, type DetectResult, type DetectTarget, type FileChange, type Harness, type InstallTarget } from "./types.js";
 
 export const MCP_FILE = ".mcp.json";
@@ -34,7 +34,7 @@ export const claudeCode: Harness = {
   plan(target: InstallTarget): FileChange[] {
     return [
       mcpJsonChange(path.join(target.dir, MCP_FILE), target.server),
-      change(path.join(target.dir, SKILL_FILE), renderDocument("skill.md", target, "mcp"), "agent workflow (skill)"),
+      change(path.join(target.dir, SKILL_FILE), renderDocument("skill.md", target, briefFor(target)), "agent workflow (skill)"),
     ];
   },
 

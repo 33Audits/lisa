@@ -16,6 +16,7 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { UserError, type RuntimeContext } from "../paths.js";
 import {
+  DEFAULT_TOOLS_MODE,
   HARNESSES,
   applyChanges,
   changeKind,
@@ -25,10 +26,13 @@ import {
   harnessIds,
   installTarget,
   statusOf,
+  wiredMode,
   type FileChange,
   type Harness,
   type HarnessStatus,
   type InstallTarget,
+  type TargetOptions,
+  type ToolsMode,
 } from "../harness/index.js";
 
 export interface InstallOptions {
@@ -39,6 +43,8 @@ export interface InstallOptions {
   dryRun?: boolean;
   print?: boolean;
   status?: boolean;
+  /** Undefined means "ask on a TTY, otherwise take the default". */
+  mode?: ToolsMode;
 }
 
 const KIND_LABEL = { create: pc.green("create  "), update: pc.yellow("update  "), unchanged: pc.dim("ok      ") } as const;
@@ -76,8 +82,40 @@ export function listHarnesses(cwd: string = process.cwd()): void {
   }
 }
 
+/**
+ * The mode question, asked once and shared with `lisa init`'s chained install.
+ *
+ * The tradeoff is real rather than a default with a fallback, so the picker states it:
+ * native moves the cost of reasoning off your API bill and onto your context window.
+ */
+export async function pickToolsMode(): Promise<ToolsMode> {
+  const value = await p.select<ToolsMode>({
+    message: "How should the agent run QA?",
+    initialValue: DEFAULT_TOOLS_MODE,
+    options: [
+      {
+        value: "native",
+        label: "Your agent drives the browser",
+        hint: "no second API key — but each page read costs tokens in your session",
+      },
+      {
+        value: "oneshot",
+        label: "lisa runs its own agent and hands back a report",
+        hint: "needs ANTHROPIC_API_KEY, billed separately — cheap on your context",
+      },
+    ],
+  });
+  if (p.isCancel(value)) {
+    p.cancel("Cancelled — nothing was written.");
+    process.exit(130);
+  }
+  return value;
+}
+
+const MODE_LABEL: Record<ToolsMode, string> = { native: "native", oneshot: "oneshot" };
+
 /** One harness, one block: detected-on-this-machine, wiring state, and a line per file it owns. */
-function reportStatus(harness: Harness, target: InstallTarget, planned?: FileChange[]): void {
+function reportStatus(harness: Harness, target: InstallTarget, targetOpts: TargetOptions, planned?: FileChange[]): void {
   const detected = harness.detect(target);
   let changes: FileChange[];
   try {
@@ -87,7 +125,19 @@ function reportStatus(harness: Harness, target: InstallTarget, planned?: FileCha
     console.log(`  ${(e as Error).message.split("\n")[0]}`);
     return;
   }
-  console.log(`${pc.bold(harness.displayName)}  ${DETECTED_LABEL[detected.installed ? "yes" : "no"]}  ${STATUS_LABEL[statusOf(changes)]}`);
+  const status = statusOf(changes);
+  // A harness wired in the *other* mode reads as "out of date" against this one. True, but
+  // unhelpful on its own — say which mode it's actually in.
+  let note = "";
+  if (status !== "wired") {
+    try {
+      const actual = wiredMode(harness, target.ctx, targetOpts);
+      if (actual.status === "wired" && actual.mode) note = pc.dim(`  (wired in ${MODE_LABEL[actual.mode]} mode, not ${MODE_LABEL[target.mode]})`);
+    } catch {
+      // The status we already have is the answer; this was only ever a nicety.
+    }
+  }
+  console.log(`${pc.bold(harness.displayName)}  ${DETECTED_LABEL[detected.installed ? "yes" : "no"]}  ${STATUS_LABEL[status]}${note}`);
   for (const line of describe(changes, target.dir)) console.log(`  ${line}`);
 }
 
@@ -115,16 +165,25 @@ async function pickHarness(target: InstallTarget): Promise<Harness> {
 
 export async function installCommand(opts: InstallOptions, ctx: RuntimeContext, harnessId?: string): Promise<void> {
   const interactive = !opts.yes && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
-  const target = installTarget(ctx, { dir: opts.dir, command: opts.command });
+  // A read-only view must not stop to ask a question, so it reports against the default
+  // mode. A write on a TTY does ask, because the two modes are a genuine tradeoff and not
+  // a preference — see pickToolsMode.
+  const readOnly = Boolean(opts.status || opts.print || opts.dryRun);
+  const optionsFor = (mode: ToolsMode): TargetOptions => ({ dir: opts.dir, command: opts.command, mode });
+
+  // Everything before the mode is settled runs against this: detection and the harness
+  // picker's own wiring hints, neither of which the mode changes in any interesting way.
+  const defaults = optionsFor(opts.mode ?? DEFAULT_TOOLS_MODE);
+  const defaultTarget = installTarget(ctx, defaults);
 
   // `--status` with no harness named reports on all of them — the seed for `lisa doctor`.
   if (opts.status && !harnessId) {
-    for (const h of HARNESSES) reportStatus(h, target);
+    for (const h of HARNESSES) reportStatus(h, defaultTarget, defaults);
     return;
   }
 
   if (!harnessId && !interactive) {
-    const found = detectAll(target).filter((d) => d.result.installed);
+    const found = detectAll(defaultTarget).filter((d) => d.result.installed);
     if (found.length) {
       console.log("Detected on this machine:");
       for (const { harness, result } of found) console.log(`  ${pc.bold(harness.id)}  ${pc.dim(result.evidence)}`);
@@ -135,12 +194,17 @@ export async function installCommand(opts: InstallOptions, ctx: RuntimeContext, 
     );
   }
 
-  const harness = harnessId ? findHarness(harnessId) : await pickHarness(target);
+  // Harness first, then mode: the picker shows each harness's wiring state, and that state
+  // is mode-dependent, so asking about the mode first would report against a guess.
+  const harness = harnessId ? findHarness(harnessId) : await pickHarness(defaultTarget);
+  const mode = opts.mode ?? (interactive && !readOnly ? await pickToolsMode() : DEFAULT_TOOLS_MODE);
+  const targetOpts = optionsFor(mode);
+  const target = installTarget(ctx, targetOpts);
   const changes = harness.plan(target);
 
   // ---- read-only views ----
   if (opts.status) {
-    reportStatus(harness, target, changes);
+    reportStatus(harness, target, targetOpts, changes);
     return;
   }
 
@@ -155,7 +219,7 @@ export async function installCommand(opts: InstallOptions, ctx: RuntimeContext, 
   const pending = changes.filter((c) => changeKind(c) !== "unchanged");
 
   if (opts.dryRun) {
-    console.log(`${pc.bold(harness.displayName)}  ${pc.dim(`in ${target.dir}`)}`);
+    console.log(`${pc.bold(harness.displayName)}  ${pc.dim(`${MODE_LABEL[mode]} mode, in ${target.dir}`)}`);
     for (const line of describe(changes, target.dir)) console.log(`  ${line}`);
     console.log(pending.length ? pc.dim(`\n${pending.length} file(s) would change. Re-run without --dry-run to apply.`) : pc.green("\nAlready wired."));
     return;
@@ -185,16 +249,29 @@ export async function installCommand(opts: InstallOptions, ctx: RuntimeContext, 
 
   const written = applyChanges(changes);
   const summary = written.map((c) => `${changeKind(c) === "create" ? "wrote  " : "updated"}  ${rel(c.path, target.dir)}`).join("\n");
-  const next = harness.nextSteps(target).map((s, i) => `${i + 1}. ${s}`).join("\n");
+  // The API-key step belongs to oneshot alone. Native mode's whole point is that the
+  // harness's own model drives, so telling a native user to go get a Console key would be
+  // telling them to solve the problem they just chose their way out of.
+  const steps =
+    mode === "oneshot"
+      ? [...harness.nextSteps(target), `Set ANTHROPIC_API_KEY where ${harness.displayName} can see it — lisa's own agent loop needs it.`]
+      : harness.nextSteps(target);
+  const next = steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+  const modeLine =
+    mode === "native"
+      ? `${harness.displayName} drives the browser itself — no ANTHROPIC_API_KEY needed for it (\`lisa run\` and CI still need one).`
+      : `${harness.displayName} calls run_qa, and lisa drives — that needs its own ANTHROPIC_API_KEY.`;
 
   if (interactive) {
     p.note(summary, "Files");
+    p.note(modeLine, `Mode: ${MODE_LABEL[mode]}`);
     p.note(next, "Next");
     p.outro(pc.green(`lisa is wired into ${harness.displayName}.`));
   } else {
     // Name the directory: with --dir the relative paths alone don't say where they landed.
     console.log(pc.dim(`${target.dir}/`));
     console.log(summary);
+    console.log(pc.dim(`\n${MODE_LABEL[mode]} mode — ${modeLine}`));
     console.log(`\nNext:\n${next}`);
   }
 }

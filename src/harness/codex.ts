@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentsChange } from "./agents-md.js";
+import { briefFor } from "./instructions.js";
 import { setTomlTable } from "./toml.js";
 import { whichSync } from "./command.js";
 import { readIfExists, type DetectResult, type DetectTarget, type FileChange, type Harness, type InstallTarget } from "./types.js";
@@ -45,7 +46,7 @@ export const codex: Harness = {
       { command: target.server.command, args: target.server.args },
       file,
     );
-    return [{ path: file, contents, before, label: "MCP server registration" }, agentsChange(target, "mcp")];
+    return [{ path: file, contents, before, label: "MCP server registration" }, agentsChange(target, briefFor(target))];
   },
 
   nextSteps(): string[] {

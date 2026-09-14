@@ -13,7 +13,7 @@ import { describeContext, resolveContext, type RuntimeContext } from "../paths.j
 import { loadConfig, resolveCredentials } from "../config.js";
 import { loadEnvFile } from "../env.js";
 import { chromiumInstalled } from "../browser.js";
-import { HARNESSES, installTarget, statusOf, type HarnessStatus } from "../harness/index.js";
+import { HARNESSES, wiredMode, type HarnessStatus, type ToolsMode } from "../harness/index.js";
 
 type Level = "ok" | "warn" | "fail";
 
@@ -32,6 +32,27 @@ const STATUS_LABEL: Record<HarnessStatus, string> = {
 
 function firstLine(e: unknown): string {
   return (e instanceof Error ? e.message : String(e)).split("\n")[0];
+}
+
+interface HarnessRow {
+  id: string;
+  status: HarnessStatus;
+  mode: ToolsMode | null;
+  error?: string;
+}
+
+/**
+ * Wiring state per harness, computed once and read twice: for the Harnesses section, and
+ * for the API-key verdict — which depends on whether anything is wired in native mode.
+ */
+function harnessRows(ctx: RuntimeContext): HarnessRow[] {
+  return HARNESSES.map((h) => {
+    try {
+      return { id: h.id, ...wiredMode(h, ctx) };
+    } catch (e) {
+      return { id: h.id, status: "not-wired" as const, mode: null, error: firstLine(e) };
+    }
+  });
 }
 
 export async function doctorCommand(configFlag?: string): Promise<void> {
@@ -59,9 +80,21 @@ export async function doctorCommand(configFlag?: string): Promise<void> {
     console.log("");
   }
 
+  // Computed before the Environment section because the API-key verdict depends on it.
+  const rows = ctx ? harnessRows(ctx) : [];
+  const nativeWired = rows.some((r) => r.status === "wired" && r.mode === "native");
+
   console.log(pc.bold("Environment"));
-  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) check("ok", "ANTHROPIC_API_KEY is set");
-  else fail("ANTHROPIC_API_KEY is not set — the agent loop calls the Claude API directly");
+  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
+    check("ok", "ANTHROPIC_API_KEY is set");
+  } else if (nativeWired) {
+    // Not a failure: a native install's whole point is that the harness's model drives, so
+    // nothing here is broken. But `lisa run` and CI do still call the API directly, so
+    // silence would be wrong too.
+    check("warn", "ANTHROPIC_API_KEY is not set — fine for your native harness wiring, but `lisa run` and CI need one");
+  } else {
+    fail("ANTHROPIC_API_KEY is not set — the agent loop calls the Claude API directly");
+  }
 
   if (chromiumInstalled()) check("ok", "Chromium is installed");
   else check("warn", "Chromium isn't installed yet — `lisa run` downloads it on first use (skip with PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD)");
@@ -87,14 +120,16 @@ export async function doctorCommand(configFlag?: string): Promise<void> {
   if (!ctx) {
     console.log(pc.dim("  (skipped — no config)"));
   } else {
-    const target = installTarget(ctx);
     const width = Math.max(...HARNESSES.map((h) => h.id.length)) + 2;
-    for (const h of HARNESSES) {
-      try {
-        console.log(`  ${h.id.padEnd(width)}${STATUS_LABEL[statusOf(h.plan(target))]}`);
-      } catch (e) {
-        console.log(`  ${h.id.padEnd(width)}${pc.red("needs attention")}  ${pc.dim(firstLine(e))}`);
+    for (const row of rows) {
+      if (row.error) {
+        console.log(`  ${row.id.padEnd(width)}${pc.red("needs attention")}  ${pc.dim(row.error)}`);
+        continue;
       }
+      // Naming the mode is the whole reason doctor checks both: "wired" without it can't
+      // distinguish an install that needs an API key from one that doesn't.
+      const mode = row.mode ? pc.dim(`  (${row.mode})`) : "";
+      console.log(`  ${row.id.padEnd(width)}${STATUS_LABEL[row.status]}${mode}`);
     }
   }
 
