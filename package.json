@@ -42,6 +42,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "dev": "tsx src/cli.ts",
     "mcp": "tsx src/mcp-server.ts",
+    "bench": "tsx bench/run-benchmark.ts",
     "setup": "npm install && npm run build && npm link",
     "postsetup": "node dist/cli.js install --suggest"
   },

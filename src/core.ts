@@ -17,9 +17,12 @@ import { ensureChromium } from "./browser.js";
 import { ensureDir, type RuntimeContext } from "./paths.js";
 import { resolveCredentials, resolveLinear, type ProjectConfig, type Severity } from "./config.js";
 import { clearIssueMap, fileToLinear, type FiledIssue } from "./linear.js";
+import { resolveRunModel, fixedModel, type RoutingMeta } from "./routing/index.js";
 
-export const MODEL = process.env.LISA_MODEL ?? "claude-sonnet-5";
+export const MODEL = fixedModel();
 export const MAX_TURNS = Number(process.env.LISA_MAX_TURNS ?? "60");
+
+export type { RoutingMeta };
 
 export type { ProjectConfig, Severity };
 
@@ -58,6 +61,12 @@ export interface Report {
   linear_issues?: FiledIssue[];
   /** Same contract as `slack_error`: present only when filing was attempted and something went wrong. */
   linear_error?: string;
+  /**
+   * The model-routing decision for this run — always present, whether or not routing was
+   * opted into. Deliberately minimal (see `src/routing/resolveModel.ts`): tier, model id,
+   * decision source, and closed reason/error codes; never mission text or feature scores.
+   */
+  routing?: RoutingMeta;
 }
 
 export type AgentEvent =
@@ -65,7 +74,8 @@ export type AgentEvent =
   | { type: "tool_call"; name: string; args: Record<string, any> }
   | { type: "tool_result"; name: string; result: Record<string, any> }
   | { type: "report"; report: Report }
-  | { type: "turn"; turn: number; max: number };
+  | { type: "turn"; turn: number; max: number }
+  | { type: "routing"; routing: RoutingMeta };
 
 export interface RunOptions {
   headed?: boolean;
@@ -402,7 +412,14 @@ export async function runAgent(project: ProjectConfig, ctx: RuntimeContext, opts
   const emit = opts.onEvent ?? (() => {});
   const client = new Anthropic();
 
-  const { creds, mission } = briefingFor(project);
+  const { creds, mission, roles } = briefingFor(project);
+
+  // Appraised once, here, before the first tool call — and then pinned for every turn below.
+  // The mission is fully known at this point (it's the whole first user message), so there is
+  // no reason to re-score mid-loop, and pinning avoids the model flipping under a session the
+  // way jev-auto pins a tool-loop continuation to its first turn's tier.
+  const { model, routing } = resolveRunModel({ mission, credentialRoleCount: roles.length, maxTurns: MAX_TURNS });
+  emit({ type: "routing", routing });
 
   const browser = new BrowserSession(project.allowed_host, ctx.shotsDir, project.name, opts, creds);
   await browser.launch();
@@ -412,7 +429,7 @@ export async function runAgent(project: ProjectConfig, ctx: RuntimeContext, opts
   try {
     for (let turn = 1; turn <= MAX_TURNS; turn++) {
       emit({ type: "turn", turn, max: MAX_TURNS });
-      const resp = await client.messages.create({ model: MODEL, max_tokens: 4096, system: SYSTEM_PROMPT, tools: TOOLS, messages });
+      const resp = await client.messages.create({ model, max_tokens: 4096, system: SYSTEM_PROMPT, tools: TOOLS, messages });
       messages.push({ role: "assistant", content: resp.content });
 
       for (const b of resp.content) if (b.type === "text" && b.text.trim()) emit({ type: "thinking", text: b.text.trim() });
@@ -441,6 +458,7 @@ export async function runAgent(project: ProjectConfig, ctx: RuntimeContext, opts
 
   const final = report ?? { summary: "Run ended without a report (turn budget hit).", coverage: [], bugs: [] };
   final.screenshots = browser.screenshots;
+  final.routing = routing;
   emit({ type: "report", report: final });
   return final;
 }

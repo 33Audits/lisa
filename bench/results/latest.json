@@ -1,0 +1,416 @@
+{
+  "generatedAt": "2026-09-29T01:52:14.556Z",
+  "corpusVersion": "2026-09-29.1",
+  "corpusFingerprint": "788c54bdf7b81495",
+  "missionCounts": {
+    "total": 30,
+    "calibration": 9,
+    "holdout": 21
+  },
+  "strategies": [
+    {
+      "strategy": "fixed-strong",
+      "calibration": {
+        "n": 9,
+        "successRate": 0.8888888888888888,
+        "underRouteRate": 0.1111111111111111,
+        "overRouteRate": 0.6666666666666666,
+        "meanRouteRegret": 0.5318888888888889,
+        "costPerVerifiedSuccessUsd": 0.7535625,
+        "totalCostUsd": 6.0285
+      },
+      "holdout": {
+        "n": 21,
+        "successRate": 0.8571428571428571,
+        "underRouteRate": 0.14285714285714285,
+        "overRouteRate": 0.5714285714285714,
+        "meanRouteRegret": 0.5354238095238095,
+        "costPerVerifiedSuccessUsd": 0.8562083333333332,
+        "totalCostUsd": 15.411749999999998,
+        "ci90": {
+          "successRate": {
+            "point": 0.8571428571428571,
+            "lo": 0.7142857142857143,
+            "hi": 0.9523809523809523,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "underRouteRate": {
+            "point": 0.14285714285714285,
+            "lo": 0.047619047619047616,
+            "hi": 0.2857142857142857,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "overRouteRate": {
+            "point": 0.5714285714285714,
+            "lo": 0.38095238095238093,
+            "hi": 0.7619047619047619,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "meanRouteRegret": {
+            "point": 0.5354238095238095,
+            "lo": 0.2849428571428571,
+            "hi": 0.8347761904761904,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "costPerVerifiedSuccessUsd": {
+            "point": 0.8562083333333332,
+            "lo": 0.5267999999999999,
+            "hi": 1.3794499999999996,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          }
+        }
+      },
+      "holdoutConfusion": {
+        "fast": {
+          "fast": 0,
+          "balanced": 0,
+          "strong": 5,
+          "long": 0
+        },
+        "balanced": {
+          "fast": 0,
+          "balanced": 0,
+          "strong": 7,
+          "long": 0
+        },
+        "strong": {
+          "fast": 0,
+          "balanced": 0,
+          "strong": 6,
+          "long": 0
+        },
+        "long": {
+          "fast": 0,
+          "balanced": 0,
+          "strong": 3,
+          "long": 0
+        }
+      }
+    },
+    {
+      "strategy": "fixed-balanced",
+      "calibration": {
+        "n": 9,
+        "successRate": 0.7777777777777778,
+        "underRouteRate": 0.3333333333333333,
+        "overRouteRate": 0.3333333333333333,
+        "meanRouteRegret": 0.0959888888888889,
+        "costPerVerifiedSuccessUsd": 0.19962857142857143,
+        "totalCostUsd": 1.3974
+      },
+      "holdout": {
+        "n": 21,
+        "successRate": 0.6190476190476191,
+        "underRouteRate": 0.42857142857142855,
+        "overRouteRate": 0.23809523809523808,
+        "meanRouteRegret": 0.12138809523809524,
+        "costPerVerifiedSuccessUsd": 0.2755384615384615,
+        "totalCostUsd": 3.582,
+        "ci90": {
+          "successRate": {
+            "point": 0.6190476190476191,
+            "lo": 0.42857142857142855,
+            "hi": 0.7619047619047619,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "underRouteRate": {
+            "point": 0.42857142857142855,
+            "lo": 0.23809523809523808,
+            "hi": 0.6190476190476191,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "overRouteRate": {
+            "point": 0.23809523809523808,
+            "lo": 0.09523809523809523,
+            "hi": 0.38095238095238093,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "meanRouteRegret": {
+            "point": 0.12138809523809524,
+            "lo": 0.06297857142857144,
+            "hi": 0.18672380952380946,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "costPerVerifiedSuccessUsd": {
+            "point": 0.2755384615384615,
+            "lo": 0.15789166666666674,
+            "hi": 0.48277500000000007,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          }
+        }
+      },
+      "holdoutConfusion": {
+        "fast": {
+          "fast": 0,
+          "balanced": 5,
+          "strong": 0,
+          "long": 0
+        },
+        "balanced": {
+          "fast": 0,
+          "balanced": 7,
+          "strong": 0,
+          "long": 0
+        },
+        "strong": {
+          "fast": 0,
+          "balanced": 6,
+          "strong": 0,
+          "long": 0
+        },
+        "long": {
+          "fast": 0,
+          "balanced": 3,
+          "strong": 0,
+          "long": 0
+        }
+      }
+    },
+    {
+      "strategy": "routed-pinned",
+      "calibration": {
+        "n": 9,
+        "successRate": 0.8888888888888888,
+        "underRouteRate": 0.1111111111111111,
+        "overRouteRate": 0,
+        "meanRouteRegret": 0.3659833333333333,
+        "costPerVerifiedSuccessUsd": 0.56691875,
+        "totalCostUsd": 4.53535
+      },
+      "holdout": {
+        "n": 21,
+        "successRate": 0.8095238095238095,
+        "underRouteRate": 0.19047619047619047,
+        "overRouteRate": 0.14285714285714285,
+        "meanRouteRegret": 0.38990952380952376,
+        "costPerVerifiedSuccessUsd": 0.6937764705882353,
+        "totalCostUsd": 11.7942,
+        "ci90": {
+          "successRate": {
+            "point": 0.8095238095238095,
+            "lo": 0.6666666666666666,
+            "hi": 0.9523809523809523,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "underRouteRate": {
+            "point": 0.19047619047619047,
+            "lo": 0.047619047619047616,
+            "hi": 0.3333333333333333,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "overRouteRate": {
+            "point": 0.14285714285714285,
+            "lo": 0.047619047619047616,
+            "hi": 0.2857142857142857,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "meanRouteRegret": {
+            "point": 0.38990952380952376,
+            "lo": 0.12604523809523807,
+            "hi": 0.6971166666666665,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "costPerVerifiedSuccessUsd": {
+            "point": 0.6937764705882353,
+            "lo": 0.32406315789473683,
+            "hi": 1.243107142857143,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          }
+        }
+      },
+      "holdoutConfusion": {
+        "fast": {
+          "fast": 3,
+          "balanced": 2,
+          "strong": 0,
+          "long": 0
+        },
+        "balanced": {
+          "fast": 0,
+          "balanced": 6,
+          "strong": 1,
+          "long": 0
+        },
+        "strong": {
+          "fast": 0,
+          "balanced": 1,
+          "strong": 5,
+          "long": 0
+        },
+        "long": {
+          "fast": 0,
+          "balanced": 0,
+          "strong": 3,
+          "long": 0
+        }
+      }
+    },
+    {
+      "strategy": "oracle-cheapest-successful",
+      "calibration": {
+        "n": 9,
+        "successRate": 1,
+        "underRouteRate": 0.1111111111111111,
+        "overRouteRate": 0,
+        "meanRouteRegret": 0,
+        "costPerVerifiedSuccessUsd": 0.3600277777777777,
+        "totalCostUsd": 3.2402499999999996
+      },
+      "holdout": {
+        "n": 21,
+        "successRate": 1,
+        "underRouteRate": 0.09523809523809523,
+        "overRouteRate": 0,
+        "meanRouteRegret": 0,
+        "costPerVerifiedSuccessUsd": 0.44225476190476193,
+        "totalCostUsd": 9.28735,
+        "ci90": {
+          "successRate": {
+            "point": 1,
+            "lo": 1,
+            "hi": 1,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "underRouteRate": {
+            "point": 0.09523809523809523,
+            "lo": 0,
+            "hi": 0.19047619047619047,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "overRouteRate": {
+            "point": 0,
+            "lo": 0,
+            "hi": 0,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "meanRouteRegret": {
+            "point": 0,
+            "lo": 0,
+            "hi": 0,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          },
+          "costPerVerifiedSuccessUsd": {
+            "point": 0.44225476190476193,
+            "lo": 0.2494642857142857,
+            "hi": 0.6527714285714284,
+            "n": 21,
+            "resamples": 2000,
+            "confidenceLevel": 0.9
+          }
+        }
+      },
+      "holdoutConfusion": {
+        "fast": {
+          "fast": 5,
+          "balanced": 0,
+          "strong": 0,
+          "long": 0
+        },
+        "balanced": {
+          "fast": 1,
+          "balanced": 6,
+          "strong": 0,
+          "long": 0
+        },
+        "strong": {
+          "fast": 0,
+          "balanced": 1,
+          "strong": 5,
+          "long": 0
+        },
+        "long": {
+          "fast": 0,
+          "balanced": 0,
+          "strong": 0,
+          "long": 3
+        }
+      }
+    }
+  ],
+  "browserSmoke": {
+    "evidence": "deterministic-harness",
+    "method": "real-playwright-browser-no-llm",
+    "ranAt": "2026-09-29T01:51:35.233Z",
+    "passed": true,
+    "checks": {
+      "navigateOk": true,
+      "clickOk": true,
+      "consoleErrorDetected": true,
+      "failedRequestDetected": true
+    },
+    "detail": [
+      "navigate -> {\"ok\":true,\"url\":\"http://127.0.0.1:38767/\",\"title\":\"Lisa Bench Fixture App\"}",
+      "click -> {\"ok\":true,\"url\":\"http://127.0.0.1:38767/\"}",
+      "console_errors -> [\"Failed to load resource: the server responded with a status of 500 (Internal Server Error)\",\"BROKEN_BUTTON_BUG: click handler failed to complete the action\"]",
+      "failed_requests -> [\"GET http://127.0.0.1:38767/api/data -> HTTP 500\"]"
+    ]
+  },
+  "liveLane": {
+    "executed": true,
+    "reason": "ran against the local fixture app with real Anthropic credentials",
+    "sampleSize": 2,
+    "records": [
+      {
+        "missionId": "m-002",
+        "passed": true,
+        "reasons": [],
+        "routingEnabled": true,
+        "tier": "fast",
+        "model": "claude-haiku-4-5-20251001",
+        "evidence": "live-model"
+      },
+      {
+        "missionId": "m-003",
+        "passed": true,
+        "reasons": [],
+        "routingEnabled": true,
+        "tier": "fast",
+        "model": "claude-haiku-4-5-20251001",
+        "evidence": "live-model"
+      }
+    ]
+  },
+  "determinismSelfCheck": {
+    "passed": true,
+    "note": "recomputing every strategy/metric/CI a second time produced byte-identical JSON"
+  },
+  "methodologyNote": "Costs, turns, and success/failure for every (mission, tier) pair below come from bench/lib/simulate.ts — a deterministic, seeded function of mission ground truth and tier capability, NOT a live model call and NOT fabricated report content. Route regret, under-route rate, over-route rate, and cost-per-verified-success are computed over the frozen holdout split only (calibration numbers are shown separately, as a diagnostic). 90% confidence intervals are bootstrap resamples of the holdout mission set, seeded deterministically per metric so re-running this script reproduces the exact same interval. See bench/README.md for the full methodology, the corpus construction rationale, and the jev-auto isolation note."
+}

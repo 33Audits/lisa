@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lisa Bench Fixture App</title>
+</head>
+<body>
+  <h1>Lisa Bench Fixture App</h1>
+  <p>A tiny static app with two intentionally seeded, deterministic defects, used only to prove
+     Lisa's real browser primitives (navigate/click/read_page) detect real signals — no LLM
+     involved. See <code>bench/lib/browser-smoke.ts</code>.</p>
+
+  <nav>
+    <a href="/">Home</a>
+  </nav>
+
+  <button id="ok-btn" onclick="console.log('ok button clicked')">Working button</button>
+  <button id="broken-btn" onclick="console.error('BROKEN_BUTTON_BUG: click handler failed to complete the action')">Broken button</button>
+
+  <script>
+    // Seeded defect #2: a background request that always 500s, so `read_page`'s
+    // failed_requests capture has something real to find.
+    fetch("/api/data").catch(() => {});
+  </script>
+</body>
+</html>

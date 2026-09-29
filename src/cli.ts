@@ -79,6 +79,14 @@ function renderEvent(e: AgentEvent): void {
       } else if (e.name === "screenshot") console.log(`  ${pc.green("✓")} saved ${e.result.saved}`);
       break;
     }
+    case "routing": {
+      // Silent unless routing was actually opted into — the fixed-model default stays quiet,
+      // matching jev-auto's own "off means off, no chatter" behavior.
+      if (!e.routing.enabled) break;
+      const tag = e.routing.tier ? pc.bold(e.routing.tier) : pc.yellow("fixed (fail-open)");
+      console.log(pc.dim(`\n[routing] ${tag} → ${e.routing.model}` + (e.routing.reason ? pc.dim(`  (${e.routing.reason})`) : "")));
+      break;
+    }
   }
 }
 
@@ -86,6 +94,9 @@ function renderReport(r: Report): void {
   console.log("\n" + pc.bold(pc.underline(`QA Report — ${r.project ?? ""}`)) + pc.dim(r.ran_at ? `  ${r.ran_at}` : ""));
   console.log(r.summary);
   console.log(pc.dim("Coverage: ") + (r.coverage.join(", ") || "n/a"));
+  if (r.routing?.enabled) {
+    console.log(pc.dim(`Routing: ${r.routing.tier ?? "fixed (fail-open)"} → ${r.routing.model}`));
+  }
   const show = (label: string, bugs: Bug[] | undefined) => {
     if (!bugs?.length) return;
     console.log("\n" + pc.bold(`${label} (${bugs.length})`));
