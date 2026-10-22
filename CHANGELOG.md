@@ -41,6 +41,7 @@ Rules for entries:
 - `lisa run --no-linear`, mirroring `--no-slack`.
 - `lisa doctor` reports whether Linear's key and team actually resolve.
 - `linear_issues` and `linear_error` on the report, shown by `lisa run` and `lisa report`.
+- `cdp_url` per project: attach to an already-running Chromium/Electron app over the DevTools protocol instead of launching a browser, so desktop apps can be QA'd.
 
 ### Changed
 

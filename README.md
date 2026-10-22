@@ -308,6 +308,16 @@ would defeat it.
 
 `lisa.config.yaml` — written by `lisa init`, then hand-edited. One entry per project: `base_url`, `allowed_host` (optional; defaults to the base_url host, navigation outside it is blocked), `credentials_env` (env var *names*, never values), and a plain-English `mission`. The mission is the whole brief — the more specific it is, the better the report.
 
+Desktop apps (Electron) and other already-running Chromium apps: add `cdp_url` to the project and start the app with a DevTools port (`--remote-debugging-port=9333`). lisa attaches with `connectOverCDP`, drives the app's first window instead of launching its own browser, and disconnects on exit without closing the app. Write the mission to click and fill only; `qa_navigate` is still limited to `allowed_host`.
+
+```yaml
+  - name: my-desktop-app
+    base_url: http://127.0.0.1:9333
+    cdp_url: http://127.0.0.1:9333
+    mission: |
+      The app is already open. Don't navigate; click and fill only. ...
+```
+
 An optional top-level `linear:` block turns on issue filing (see below). Any project can
 override it with a `linear:` of its own — a monorepo files each app's bugs to its own team.
 
