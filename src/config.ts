@@ -103,6 +103,12 @@ const ProjectSchema = z
     allowed_host: z.string().min(1).optional(),
     /** Map of role -> env var NAME holding the secret, e.g. { username: ACME_QA_USERNAME }. */
     credentials_env: z.record(EnvVarName).default({}),
+    /**
+     * Attach to an already-running Chromium/Electron app over the DevTools protocol instead of
+     * launching lisa's own browser (e.g. a desktop app started with --remote-debugging-port).
+     * lisa drives the app's first window and disconnects on exit without closing the app.
+     */
+    cdp_url: z.string().url().optional(),
     mission: z.string().min(1),
     /** Per-project override of the top-level `linear:` block. Merged, not replaced. */
     linear: ProjectLinearSchema.optional(),

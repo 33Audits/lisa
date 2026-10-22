@@ -91,7 +91,7 @@ export class SessionRegistry {
     }
 
     const { creds, roles, missing } = briefingFor(project);
-    const browser = new BrowserSession(project.allowed_host, ctx.shotsDir, project.name, opts, creds);
+    const browser = new BrowserSession(project.allowed_host, ctx.shotsDir, project.name, opts, creds, project.cdp_url);
     await browser.launch();
 
     const now = Date.now();

@@ -253,23 +253,34 @@ export class BrowserSession {
     projectName: string,
     private opts: RunOptions,
     private creds: Record<string, string> = {},
+    private cdpUrl?: string,
   ) {
     this.shotsDir = path.join(shotsDir, slug(projectName) || "project");
   }
 
   async launch(): Promise<void> {
-    ensureChromium();
-    this.pw = await chromium.launch({
-      headless: !this.opts.headed,
-      slowMo: this.opts.headed ? this.opts.slowMo ?? 250 : 0,
-      // Playwright installs exit/SIGINT/SIGTERM/SIGHUP handlers on first launch, and its
-      // SIGINT handler calls process.exit(130) — which truncates an async shutdown
-      // mid-flight and leaves a browser behind. We own shutdown; see session.ts.
-      handleSIGINT: false,
-      handleSIGTERM: false,
-      handleSIGHUP: false,
-    });
-    this.page = await this.pw.newPage({ viewport: { width: 1440, height: 900 } });
+    if (this.cdpUrl) {
+      // Attached app (e.g. Electron): drive its first real window, never a DevTools page, and
+      // keep the app's own window size.
+      this.pw = await chromium.connectOverCDP(this.cdpUrl);
+      const pages = this.pw.contexts().flatMap((c) => c.pages());
+      const appPage = pages.find((p) => !p.url().startsWith("devtools://"));
+      if (!appPage) throw new Error(`No app window found at ${this.cdpUrl}`);
+      this.page = appPage;
+    } else {
+      ensureChromium();
+      this.pw = await chromium.launch({
+        headless: !this.opts.headed,
+        slowMo: this.opts.headed ? this.opts.slowMo ?? 250 : 0,
+        // Playwright installs exit/SIGINT/SIGTERM/SIGHUP handlers on first launch, and its
+        // SIGINT handler calls process.exit(130) — which truncates an async shutdown
+        // mid-flight and leaves a browser behind. We own shutdown; see session.ts.
+        handleSIGINT: false,
+        handleSIGTERM: false,
+        handleSIGHUP: false,
+      });
+      this.page = await this.pw.newPage({ viewport: { width: 1440, height: 900 } });
+    }
     this.page.on("console", (m: ConsoleMessage) => { if (m.type() === "error") this.consoleErrors.push(m.text()); });
     this.page.on("requestfailed", (r: Request) => this.failedRequests.push(`${r.method()} ${r.url()} -> ${r.failure()?.errorText ?? "failed"}`));
     this.page.on("response", (r: Response) => { if (r.status() >= 500) this.failedRequests.push(`${r.request().method()} ${r.url()} -> HTTP ${r.status()}`); });
@@ -404,7 +415,7 @@ export async function runAgent(project: ProjectConfig, ctx: RuntimeContext, opts
 
   const { creds, mission } = briefingFor(project);
 
-  const browser = new BrowserSession(project.allowed_host, ctx.shotsDir, project.name, opts, creds);
+  const browser = new BrowserSession(project.allowed_host, ctx.shotsDir, project.name, opts, creds, project.cdp_url);
   await browser.launch();
   const messages: MessageParam[] = [{ role: "user", content: mission }];
   let report: Report | null = null;
